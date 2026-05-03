@@ -898,7 +898,7 @@ Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 80.dp, start = 1
                 Icon(androidx.compose.material.icons.Icons.Filled.InsertDriveFile, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(4.dp))
                 val currentIndex = listState.firstVisibleItemIndex
-                Text("${currentIndex + 1}/", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text("${currentIndex + 1}/$pageCount", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
