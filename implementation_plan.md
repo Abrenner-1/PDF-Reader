@@ -1,62 +1,48 @@
-# Android PDF Editor & Reader App
+# Interactive Annotation System Implementation Plan
 
-This is the finalized implementation plan for your feature-rich PDF Reader and Editor application for Android.
+This plan addresses the need to make text annotations interactive (movable, editable, formatable, and deletable) rather than immediately stamping them permanently into the PDF.
 
-## Background Context
-We will build a modern Android app using Kotlin and Jetpack Compose. To handle advanced PDF manipulation, we will utilize **PdfBox-Android** (a free, open-source port of Apache PDFBox). This provides the capabilities to parse, render, modify, and create PDF documents.
+## Goal Description
+Currently, text is burned permanently into the PDF using `PDPageContentStream` the moment it is submitted. To allow interactions like dragging, editing, or deleting, we must decouple the UI rendering from the PDF Engine. We will achieve this by creating an **Annotation Overlay Layer** in Jetpack Compose. Text will exist as draggable UI components on screen until the user explicitly hits the "Save" button, at which point all annotations will be permanently stamped into the PDF file.
 
-## Approved Features & Implementation Strategy
+> [!WARNING]  
+> ## User Review Required
+> This fundamentally changes how the app works. Any edits you make on screen will exist *only in the app's memory* until you press "Save". If the app closes before you hit Save, your unsaved text boxes will be lost. Do you approve of this approach?
 
-### 1. Navigation & UI
-- **Continuous Scroll**: The main viewing area will be a vertical, continuously scrolling list of PDF pages.
-- **Thumbnail Sidebar**: A collapsible sidebar or bottom sheet will show miniature thumbnails of each page for quick navigation.
-- **Dark Mode**: Supports automatic system Dark Mode, plus a toggle to invert the colors of the PDF pages for night reading.
+## Proposed Changes
 
-### 2. Save & Export
-- **Save Prompt**: Whenever saving a document (after annotating, signing, etc.), the app will prompt the user to either "Overwrite Original" or "Save as Copy".
-- **Share**: A standard Android Share button to send the document to other apps.
+### 1. Data Models (State Management)
+We will introduce a data structure to track text boxes in memory.
 
-### 3. Annotation & Shapes
-- **Add Signature**: A drawing pad to capture signatures, which will be stamped onto the PDF as an image annotation.
-- **Highlight Text**: Text extraction to find words and draw highlight boxes over them.
-- **Shapes**: Users can select drawing tools to add Shapes (Arrows, Clouds, Rectangles) directly onto the document.
-- **Add Text Boxes**: Users can easily drop new text boxes over the page.
+#### [NEW] `AnnotationState.kt`
+- Create a `TextAnnotation` data class containing:
+  - `id`: Unique identifier.
+  - `pageIndex`: Which page the text belongs to.
+  - `text`: The string content.
+  - `x, y`: The coordinates on the page.
+  - `fontSize`: Text size formatting.
+  - `color`: Text color formatting.
 
-### 4. Convert to PDF
-- **Image-to-PDF**: Select JPEG/PNG images from the device gallery and stitch them into a single PDF.
-- **Text-to-PDF**: A simple text editor area to type or paste plain text and convert it into a basic PDF file.
+### 2. UI Updates (`PdfViewerScreen.kt`)
+We will modify the screen to render the text annotations *on top* of the PDF bitmaps.
 
-## Proposed Architecture
+#### [MODIFY] `PdfViewerScreen.kt`
+- **State Holders**: Add a `mutableStateListOf<TextAnnotation>()` to track all active text boxes.
+- **Draggable Overlays**: Over the PDF `Image` inside the `Box`, we will render a `BasicTextField` for every annotation belonging to that page.
+- **Drag Gestures**: Add `pointerInput(detectDragGestures)` to allow users to move the text boxes around the page.
+- **Selection/Formatting**: When a text box is tapped/selected, show a small formatting toolbar (Size +, Size -, Change Color, Delete).
 
-- **UI Framework**: Jetpack Compose
-- **Language**: Kotlin
-- **PDF Engine**: `TomRoush:PdfBox-Android` (Free, Open-Source)
-- **Architecture**: MVVM (Model-View-ViewModel)
+### 3. PDF Engine (`PdfEngine.kt`)
+We will update the engine to stamp all annotations at once during the save process.
 
-### Core Components
-
-#### app/build.gradle.kts
-Dependencies for Compose, Coroutines, and `implementation("com.tomroush:pdfbox-android:2.0.27.0")`.
-
-#### MainActivity.kt
-Hosts the Compose UI and handles Android intents (file picking, sharing).
-
-#### PdfEngine.kt
-Abstracts `PdfBox` operations:
-- `renderPageToBitmap(pageIndex)`
-- `addSignature`, `addHighlight`, `addShapes(Arrow, Cloud)`
-- `createPdfFromImages(imageUris)`, `createPdfFromText(string)`
-- `saveDocument(overwriteBoolean)`
-
-#### PdfViewerScreen.kt & SidebarComponent.kt
-The Jetpack Compose UI:
-- **Main Canvas**: Continuous scroll `LazyColumn` showing rendered bitmaps.
-- **Sidebar**: A drawer showing thumbnails.
-- **Dialogs**: Save confirmation prompt.
+#### [MODIFY] `PdfEngine.kt`
+- Modify the `saveDocument` function to accept a `List<TextAnnotation>`.
+- Before writing the file to disk, loop through the list, open a `PDPageContentStream` for the appropriate pages, and apply all text, fonts, sizes, and colors exactly where the user positioned them on screen.
 
 ## Verification Plan
-1. Initialize the Android project.
-2. Verify continuous scroll and thumbnail sidebar UI.
-3. Test drawing and saving shapes (Arrows/Clouds/Text boxes/Signatures).
-4. Test the Save prompt functionality.
-5. Verify Image/Text to PDF conversions.
+### Manual Verification
+1. Launch app and open a PDF.
+2. Tap to add a text box.
+3. **Verify Dragging**: Ensure the user can drag the text box around the page smoothly.
+4. **Verify Formatting**: Ensure clicking the text box opens formatting tools to change color/size or delete it.
+5. **Verify Saving**: Click "Save" and open the newly generated PDF in an external viewer to ensure the text was permanently burned into the correct position.
