@@ -161,9 +161,9 @@ fun PdfViewerScreen(
                     .fillMaxSize()
                     .pointerInput(Unit) {
                         awaitEachGesture {
-                            awaitFirstDown()
+                            awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
                             do {
-                                val event = awaitPointerEvent()
+                                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
                                 val zoom = event.calculateZoom()
                                 val pan = event.calculatePan()
                                 
