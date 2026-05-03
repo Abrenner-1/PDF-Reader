@@ -54,6 +54,13 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    // Auto-launch the file picker when there's no document selected
+                    LaunchedEffect(selectedUri) {
+                        if (selectedUri == null) {
+                            filePicker.launch(arrayOf("application/pdf"))
+                        }
+                    }
+
                     if (selectedUri == null) {
                         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                             Button(onClick = { filePicker.launch(arrayOf("application/pdf")) }) {
@@ -61,18 +68,33 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     } else {
-                        var refreshTrigger by remember { mutableStateOf(0) }
+                        var currentAnnotations by remember { mutableStateOf<List<TextAnnotation>>(emptyList()) }
+                        var currentHighlights by remember { mutableStateOf<List<HighlightAnnotation>>(emptyList()) }
+                        var currentShapes by remember { mutableStateOf<List<ShapeAnnotation>>(emptyList()) }
+                        
+                        val saveAsPicker = rememberLauncherForActivityResult(
+                            contract = ActivityResultContracts.CreateDocument("application/pdf")
+                        ) { uri: Uri? ->
+                            uri?.let {
+                                scope.launch {
+                                    pdfEngine.saveDocument(it, currentAnnotations, currentHighlights, currentShapes)
+                                }
+                            }
+                        }
+                        
                         PdfViewerScreen(
                             pageCount = pageCount,
                             getPageBitmap = { index, scale -> pdfEngine.renderPageToBitmap(index, scale) },
-                            onSaveRequested = { showSaveDialog = true },
-                            onAddText = { index, text, x, y ->
-                                scope.launch {
-                                    pdfEngine.addTextToPage(index, text, x, y)
-                                    refreshTrigger++ // Force re-render of bitmaps
-                                }
+                            onSaveRequested = { annotations, highlights, shapes -> 
+                                currentAnnotations = annotations
+                                currentHighlights = highlights
+                                currentShapes = shapes
+                                showSaveDialog = true 
                             },
-                            refreshTrigger = refreshTrigger
+                            onCloseDocument = {
+                                selectedUri = null
+                                pageCount = 0
+                            }
                         )
                         
                         if (showSaveDialog) {
@@ -80,12 +102,12 @@ class MainActivity : ComponentActivity() {
                                 onDismiss = { showSaveDialog = false },
                                 onOverwrite = {
                                     scope.launch {
-                                        pdfEngine.saveDocument(selectedUri!!)
+                                        pdfEngine.saveDocument(selectedUri!!, currentAnnotations, currentHighlights)
                                         showSaveDialog = false
                                     }
                                 },
                                 onSaveCopy = {
-                                    // Note: In a real app, this would launch a CreateDocument intent
+                                    saveAsPicker.launch("Document_Copy.pdf")
                                     showSaveDialog = false
                                 }
                             )

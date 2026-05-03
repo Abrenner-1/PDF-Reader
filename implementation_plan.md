@@ -46,3 +46,16 @@ We will update the engine to stamp all annotations at once during the save proce
 3. **Verify Dragging**: Ensure the user can drag the text box around the page smoothly.
 4. **Verify Formatting**: Ensure clicking the text box opens formatting tools to change color/size or delete it.
 5. **Verify Saving**: Click "Save" and open the newly generated PDF in an external viewer to ensure the text was permanently burned into the correct position.
+
+## Future Enhancements
+Based on your requests, the following features are planned for future implementation:
+- **Highlight Text**: Ability to select text and apply a highlighter overlay.
+- **Add Shapes**: Ability to draw and manipulate boxes, clouds, arrows, etc.
+- **Signatures**: Ability to draw, save, and stamp signatures onto the PDF.
+- **Dark Mode**: Support for a full application-wide dark theme to improve reading experience at night.
+- **Import Images**: Ability to insert, resize, and position external images onto the PDF.
+- **Advanced Text Formatting**: Options to change font size, text color, background color, and font family.
+- **Freehand Drawing**: Support for writing and drawing freely with a pen tool.
+- **Image to PDF**: Convert photos or image files into a new PDF document.
+- **Share Option**: Easily share the generated/edited PDF via Android's native share sheet.
+- **Fillable Forms**: Support for interacting with and filling out interactive PDF form fields.
