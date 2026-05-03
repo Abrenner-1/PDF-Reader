@@ -1,6 +1,7 @@
 package com.example.pdfreader
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import java.util.UUID
 
 data class TextAnnotation(
@@ -43,4 +44,15 @@ data class ShapeAnnotation(
     var alpha: Float = 1f,
     var strokeWidth: Float = 3f,
     var isFilled: Boolean = false
+)
+data class SignatureAnnotation(
+    val id: String = UUID.randomUUID().toString(),
+    val pageIndex: Int,
+    var strokes: List<List<Offset>>, // Normalized 0f..1f relative to its own bounding box
+    var startX: Float,
+    var startY: Float,
+    var endX: Float,
+    var endY: Float,
+    var color: Color = Color.Black,
+    var strokeWidth: Float = 3f
 )

@@ -51,15 +51,21 @@ class PdfEngine(private val context: Context) {
         }
     }
 
-    suspend fun saveDocument(outputUri: Uri, annotations: List<TextAnnotation> = emptyList(), highlightAnnotations: List<HighlightAnnotation> = emptyList(), shapeAnnotations: List<ShapeAnnotation> = emptyList()) {
-        withContext(Dispatchers.IO) {
+    suspend fun saveDocument(
+        outputUri: Uri,
+        annotations: List<TextAnnotation>,
+        highlights: List<HighlightAnnotation>,
+        shapes: List<ShapeAnnotation>,
+        signatures: List<SignatureAnnotation> = emptyList()
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
             currentDocument?.let { doc ->
-                // Group annotations by page
                 val groupedAnnotations = annotations.groupBy { it.pageIndex }
-                val groupedHighlights = highlightAnnotations.groupBy { it.pageIndex }
-                val groupedShapes = shapeAnnotations.groupBy { it.pageIndex }
+                val groupedHighlights = highlights.groupBy { it.pageIndex }
+                val groupedShapes = shapes.groupBy { it.pageIndex }
+                val groupedSignatures = signatures.groupBy { it.pageIndex }
                 
-                val allPagesToModify = (groupedAnnotations.keys + groupedHighlights.keys + groupedShapes.keys).distinct()
+                val allPagesToModify = (groupedAnnotations.keys + groupedHighlights.keys + groupedShapes.keys + groupedSignatures.keys).distinct()
                 
                 for (pageIndex in allPagesToModify) {
                     if (pageIndex in 0 until doc.numberOfPages) {
@@ -257,6 +263,49 @@ class PdfEngine(private val context: Context) {
                             }
                         }
                         
+                        // 4. Draw Signatures
+                        groupedSignatures[pageIndex]?.forEach { sig ->
+                            val sX = minOf(sig.startX, sig.endX) * pdfWidth
+                            val eX = maxOf(sig.startX, sig.endX) * pdfWidth
+                            val sY = pdfHeight - maxOf(sig.startY, sig.endY) * pdfHeight
+                            val eY = pdfHeight - minOf(sig.startY, sig.endY) * pdfHeight
+                            
+                            val w = eX - sX
+                            val h = eY - sY
+                            
+                            val r = (sig.color.red * 255).toInt()
+                            val g = (sig.color.green * 255).toInt()
+                            val b = (sig.color.blue * 255).toInt()
+                            
+                            val graphicsState = PDExtendedGraphicsState()
+                            graphicsState.setStrokingAlphaConstant(1f)
+                            graphicsState.setNonStrokingAlphaConstant(1f)
+                            contentStream.setGraphicsStateParameters(graphicsState)
+                            
+                            contentStream.setStrokingColor(r, g, b)
+                            contentStream.setNonStrokingColor(r, g, b)
+                            contentStream.setLineWidth(sig.strokeWidth)
+                            
+                            sig.strokes.forEach { stroke ->
+                                if (stroke.size > 1) {
+                                    val firstPtX = sX + stroke.first().x * w
+                                    val firstPtY = sY + (1f - stroke.first().y) * h // Invert Y inside the bounding box
+                                    contentStream.moveTo(firstPtX, firstPtY)
+                                    for (i in 1 until stroke.size) {
+                                        val ptX = sX + stroke[i].x * w
+                                        val ptY = sY + (1f - stroke[i].y) * h
+                                        contentStream.lineTo(ptX, ptY)
+                                    }
+                                    contentStream.stroke()
+                                } else if (stroke.size == 1) {
+                                    val ptX = sX + stroke.first().x * w
+                                    val ptY = sY + (1f - stroke.first().y) * h
+                                    contentStream.addRect(ptX - 1.5f, ptY - 1.5f, 3f, 3f)
+                                    contentStream.fill()
+                                }
+                            }
+                        }
+                        
                         contentStream.close()
                     }
                 }
@@ -266,6 +315,10 @@ class PdfEngine(private val context: Context) {
                     doc.save(FileOutputStream(it.fileDescriptor))
                 }
             }
+            return@withContext true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return@withContext false
         }
     }
 

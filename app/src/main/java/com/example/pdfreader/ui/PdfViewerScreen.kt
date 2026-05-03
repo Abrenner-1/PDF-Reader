@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -49,14 +50,18 @@ import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 
-enum class ToolType { SCROLL, ADD_TEXT, HIGHLIGHT, SHAPE }
+import com.example.pdfreader.SignatureAnnotation
+
+enum class ToolType { SCROLL, ADD_TEXT, HIGHLIGHT, SHAPE, SIGNATURE }
+
+data class SignatureLocation(val pageIndex: Int, val relativeX: Float, val relativeY: Float)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PdfViewerScreen(
     pageCount: Int,
     getPageBitmap: suspend (Int, Float) -> Bitmap?,
-    onSaveRequested: (List<TextAnnotation>, List<HighlightAnnotation>, List<ShapeAnnotation>) -> Unit,
+    onSaveRequested: (List<TextAnnotation>, List<HighlightAnnotation>, List<ShapeAnnotation>, List<SignatureAnnotation>) -> Unit,
     onCloseDocument: () -> Unit
 ) {
     var sidebarOpen by remember { mutableStateOf(false) }
@@ -68,12 +73,17 @@ fun PdfViewerScreen(
     val textAnnotations = remember { mutableStateListOf<TextAnnotation>() }
     val highlightAnnotations = remember { mutableStateListOf<HighlightAnnotation>() }
     val shapeAnnotations = remember { mutableStateListOf<ShapeAnnotation>() }
+    val signatureAnnotations = remember { mutableStateListOf<SignatureAnnotation>() }
     
     // Track which annotation is selected for formatting/deleting
     var selectedTextAnnotationId by remember { mutableStateOf<String?>(null) }
     var selectedHighlightId by remember { mutableStateOf<String?>(null) }
     var selectedShapeId by remember { mutableStateOf<String?>(null) }
+    var selectedSignatureId by remember { mutableStateOf<String?>(null) }
     var currentShapeType by remember { mutableStateOf(ShapeType.RECTANGLE) }
+    
+    var showSignaturePad by remember { mutableStateOf(false) }
+    var pendingSignatureLocation by remember { mutableStateOf<SignatureLocation?>(null) }
     val focusManager = LocalFocusManager.current
 
     LaunchedEffect(selectedTextAnnotationId) {
@@ -120,12 +130,16 @@ fun PdfViewerScreen(
                         bitmap = getPageBitmap(index, 1f)
                     }
 
+                    val isSelectedPage = (selectedSignatureId != null && signatureAnnotations.any { it.id == selectedSignatureId && it.pageIndex == index }) ||
+                                         (selectedShapeId != null && shapeAnnotations.any { it.id == selectedShapeId && it.pageIndex == index })
+
                     BoxWithConstraints(
                         modifier = Modifier
+                            .zIndex(if (isSelectedPage) 1f else 0f)
                             .fillMaxWidth()
                             .aspectRatio(0.75f) // Approximate PDF aspect ratio A4
                             .background(Color.White)
-                            .pointerInput(currentTool, selectedTextAnnotationId) {
+                            .pointerInput(currentTool, selectedTextAnnotationId, selectedSignatureId, selectedShapeId) {
                                 if (currentTool == ToolType.ADD_TEXT || selectedTextAnnotationId != null) {
                                     detectTapGestures { offset ->
                                         if (selectedTextAnnotationId != null) {
@@ -169,7 +183,6 @@ fun PdfViewerScreen(
                                                     val newWidth = current.width + (dragAmount.x / size.width)
                                                     val newHeight = current.height + (dragAmount.y / size.height)
                                                     
-                                                    // Allow drawing backwards by adjusting x/y and making width/height positive
                                                     highlightAnnotations[idx] = current.copy(
                                                         width = newWidth,
                                                         height = newHeight
@@ -178,36 +191,208 @@ fun PdfViewerScreen(
                                             }
                                         }
                                     )
-                                } else if (currentTool == ToolType.SHAPE) {
-                                    var currentShape: ShapeAnnotation? = null
+                                } else if (selectedSignatureId != null) {
+                                    var isResizingStart = false
+                                    var isResizingEnd = false
+                                    var isMoving = false
+                                    var activeSigId: String? = null
+                                    
                                     detectDragGestures(
                                         onDragStart = { offset ->
                                             val relativeX = offset.x / size.width
                                             val relativeY = offset.y / size.height
-                                            val newShape = ShapeAnnotation(
-                                                pageIndex = index,
-                                                type = currentShapeType,
-                                                startX = relativeX,
-                                                startY = relativeY,
-                                                endX = relativeX,
-                                                endY = relativeY
-                                            )
-                                            shapeAnnotations.add(newShape)
-                                            currentShape = newShape
-                                            selectedShapeId = newShape.id
+                                            val pixelX = offset.x
+                                            val pixelY = offset.y
+                                            
+                                            val sig = signatureAnnotations.find { it.id == selectedSignatureId && it.pageIndex == index }
+                                            if (sig != null) {
+                                                val shapeStartX = sig.startX * size.width
+                                                val shapeStartY = sig.startY * size.height
+                                                val shapeEndX = sig.endX * size.width
+                                                val shapeEndY = sig.endY * size.height
+                                                
+                                                val distToStart = kotlin.math.hypot((pixelX - shapeStartX).toDouble(), (pixelY - shapeStartY).toDouble()).toFloat()
+                                                val distToEnd = kotlin.math.hypot((pixelX - shapeEndX).toDouble(), (pixelY - shapeEndY).toDouble()).toFloat()
+                                                
+                                                val touchRadius = 120f
+                                                
+                                                if (distToEnd < touchRadius && distToEnd <= distToStart) {
+                                                    isResizingEnd = true
+                                                    activeSigId = sig.id
+                                                    return@detectDragGestures
+                                                } else if (distToStart < touchRadius) {
+                                                    isResizingStart = true
+                                                    activeSigId = sig.id
+                                                    return@detectDragGestures
+                                                }
+                                                
+                                                val minX = minOf(sig.startX, sig.endX) - 0.05f
+                                                val maxX = maxOf(sig.startX, sig.endX) + 0.05f
+                                                val minY = minOf(sig.startY, sig.endY) - 0.05f
+                                                val maxY = maxOf(sig.startY, sig.endY) + 0.05f
+                                                
+                                                if (relativeX in minX..maxX && relativeY in minY..maxY) {
+                                                    isMoving = true
+                                                    activeSigId = sig.id
+                                                }
+                                            }
+                                        },
+                                        onDragEnd = {
+                                            isResizingStart = false
+                                            isResizingEnd = false
+                                            isMoving = false
+                                            activeSigId = null
                                         },
                                         onDrag = { change, dragAmount ->
-                                            change.consume()
-                                            currentShape?.let { shape ->
-                                                val idx = shapeAnnotations.indexOfFirst { it.id == shape.id }
+                                            if (activeSigId != null) {
+                                                change.consume()
+                                                val sigId = activeSigId!!
+                                                val idx = signatureAnnotations.indexOfFirst { it.id == sigId }
+                                                if (idx != -1) {
+                                                    val current = signatureAnnotations[idx]
+                                                    val dx = dragAmount.x / size.width
+                                                    val dy = dragAmount.y / size.height
+                                                    
+                                                    if (isResizingEnd) {
+                                                        signatureAnnotations[idx] = current.copy(endX = current.endX + dx, endY = current.endY + dy)
+                                                    } else if (isResizingStart) {
+                                                        signatureAnnotations[idx] = current.copy(startX = current.startX + dx, startY = current.startY + dy)
+                                                    } else if (isMoving) {
+                                                        var newY = current.startY + dy
+                                                        var newEndY = current.endY + dy
+                                                        var newPage = current.pageIndex
+                                                        
+                                                        while (newY > 1.0f && newPage < pageCount - 1) {
+                                                            newY -= 1.0f
+                                                            newEndY -= 1.0f
+                                                            newPage += 1
+                                                        }
+                                                        while (newY < 0.0f && newPage > 0) {
+                                                            newY += 1.0f
+                                                            newEndY += 1.0f
+                                                            newPage -= 1
+                                                        }
+                                                        
+                                                        signatureAnnotations[idx] = current.copy(
+                                                            pageIndex = newPage,
+                                                            startX = current.startX + dx,
+                                                            startY = newY,
+                                                            endX = current.endX + dx,
+                                                            endY = newEndY
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    )
+                                } else if (currentTool == ToolType.SHAPE || selectedShapeId != null) {
+                                    var isResizingStart = false
+                                    var isResizingEnd = false
+                                    var isMoving = false
+                                    var activeShapeId: String? = null
+                                    
+                                    detectDragGestures(
+                                        onDragStart = { offset ->
+                                            val relativeX = offset.x / size.width
+                                            val relativeY = offset.y / size.height
+                                            val pixelX = offset.x
+                                            val pixelY = offset.y
+                                            
+                                            if (selectedShapeId != null) {
+                                                val shape = shapeAnnotations.find { it.id == selectedShapeId && it.pageIndex == index }
+                                                if (shape != null) {
+                                                    val shapeStartX = shape.startX * size.width
+                                                    val shapeStartY = shape.startY * size.height
+                                                    val shapeEndX = shape.endX * size.width
+                                                    val shapeEndY = shape.endY * size.height
+                                                    
+                                                    val distToStart = kotlin.math.hypot((pixelX - shapeStartX).toDouble(), (pixelY - shapeStartY).toDouble()).toFloat()
+                                                    val distToEnd = kotlin.math.hypot((pixelX - shapeEndX).toDouble(), (pixelY - shapeEndY).toDouble()).toFloat()
+                                                    
+                                                    val touchRadius = 120f
+                                                    
+                                                    if (distToEnd < touchRadius && distToEnd <= distToStart) {
+                                                        isResizingEnd = true
+                                                        activeShapeId = shape.id
+                                                        return@detectDragGestures
+                                                    } else if (distToStart < touchRadius) {
+                                                        isResizingStart = true
+                                                        activeShapeId = shape.id
+                                                        return@detectDragGestures
+                                                    }
+                                                    
+                                                    val minX = minOf(shape.startX, shape.endX) - 0.05f
+                                                    val maxX = maxOf(shape.startX, shape.endX) + 0.05f
+                                                    val minY = minOf(shape.startY, shape.endY) - 0.05f
+                                                    val maxY = maxOf(shape.startY, shape.endY) + 0.05f
+                                                    
+                                                    if (relativeX in minX..maxX && relativeY in minY..maxY) {
+                                                        isMoving = true
+                                                        activeShapeId = shape.id
+                                                        return@detectDragGestures
+                                                    }
+                                                }
+                                            }
+                                            
+                                            if (currentTool == ToolType.SHAPE) {
+                                                val newShape = ShapeAnnotation(
+                                                    pageIndex = index,
+                                                    type = currentShapeType,
+                                                    startX = relativeX,
+                                                    startY = relativeY,
+                                                    endX = relativeX,
+                                                    endY = relativeY
+                                                )
+                                                shapeAnnotations.add(newShape)
+                                                activeShapeId = newShape.id
+                                                selectedShapeId = newShape.id
+                                                isResizingEnd = true // Dragging draws the end point
+                                            }
+                                        },
+                                        onDragEnd = {
+                                            isResizingStart = false
+                                            isResizingEnd = false
+                                            isMoving = false
+                                            activeShapeId = null
+                                        },
+                                        onDrag = { change, dragAmount ->
+                                            if (activeShapeId != null) {
+                                                change.consume()
+                                                val shapeId = activeShapeId!!
+                                                val idx = shapeAnnotations.indexOfFirst { it.id == shapeId }
                                                 if (idx != -1) {
                                                     val current = shapeAnnotations[idx]
-                                                    val newEndX = current.endX + (dragAmount.x / size.width)
-                                                    val newEndY = current.endY + (dragAmount.y / size.height)
-                                                    shapeAnnotations[idx] = current.copy(
-                                                        endX = newEndX,
-                                                        endY = newEndY
-                                                    )
+                                                    val dx = dragAmount.x / size.width
+                                                    val dy = dragAmount.y / size.height
+                                                    
+                                                    if (isResizingEnd) {
+                                                        shapeAnnotations[idx] = current.copy(endX = current.endX + dx, endY = current.endY + dy)
+                                                    } else if (isResizingStart) {
+                                                        shapeAnnotations[idx] = current.copy(startX = current.startX + dx, startY = current.startY + dy)
+                                                    } else if (isMoving) {
+                                                        var newY = current.startY + dy
+                                                        var newEndY = current.endY + dy
+                                                        var newPage = current.pageIndex
+                                                        
+                                                        while (newY > 1.0f && newPage < pageCount - 1) {
+                                                            newY -= 1.0f
+                                                            newEndY -= 1.0f
+                                                            newPage += 1
+                                                        }
+                                                        while (newY < 0.0f && newPage > 0) {
+                                                            newY += 1.0f
+                                                            newEndY += 1.0f
+                                                            newPage -= 1
+                                                        }
+                                                        
+                                                        shapeAnnotations[idx] = current.copy(
+                                                            pageIndex = newPage,
+                                                            startX = current.startX + dx,
+                                                            startY = newY,
+                                                            endX = current.endX + dx,
+                                                            endY = newEndY
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
@@ -228,32 +413,90 @@ fun PdfViewerScreen(
                         val boxWidth = maxWidth
                         val boxHeight = maxHeight
                         
-                        // Render Canvas Shapes
-                        Canvas(modifier = Modifier.fillMaxSize().pointerInput(shapeAnnotations) {
+                        // Render Canvas Shapes and Signatures
+                        Canvas(modifier = Modifier.fillMaxSize().pointerInput(shapeAnnotations, signatureAnnotations, currentTool) {
                             detectTapGestures { offset ->
                                 val tapX = offset.x / size.width
                                 val tapY = offset.y / size.height
                                 
-                                // Find if tap is within any shape bounds
-                                val clickedShape = shapeAnnotations.filter { it.pageIndex == index }.findLast { shape ->
-                                    val minX = minOf(shape.startX, shape.endX) - 0.05f
-                                    val maxX = maxOf(shape.startX, shape.endX) + 0.05f
-                                    val minY = minOf(shape.startY, shape.endY) - 0.05f
-                                    val maxY = maxOf(shape.startY, shape.endY) + 0.05f
+                                val clickedSig = signatureAnnotations.filter { it.pageIndex == index }.findLast { sig ->
+                                    val minX = minOf(sig.startX, sig.endX) - 0.05f
+                                    val maxX = maxOf(sig.startX, sig.endX) + 0.05f
+                                    val minY = minOf(sig.startY, sig.endY) - 0.05f
+                                    val maxY = maxOf(sig.startY, sig.endY) + 0.05f
                                     tapX in minX..maxX && tapY in minY..maxY
                                 }
                                 
-                                if (clickedShape != null) {
-                                    selectedShapeId = clickedShape.id
+                                val clickedShape = if (clickedSig == null) {
+                                    shapeAnnotations.filter { it.pageIndex == index }.findLast { shape ->
+                                        val minX = minOf(shape.startX, shape.endX) - 0.05f
+                                        val maxX = maxOf(shape.startX, shape.endX) + 0.05f
+                                        val minY = minOf(shape.startY, shape.endY) - 0.05f
+                                        val maxY = maxOf(shape.startY, shape.endY) + 0.05f
+                                        tapX in minX..maxX && tapY in minY..maxY
+                                    }
+                                } else null
+                                
+                                if (clickedSig != null) {
+                                    selectedSignatureId = clickedSig.id
+                                    selectedShapeId = null
                                     selectedTextAnnotationId = null
                                     selectedHighlightId = null
-                                } else if (currentTool == ToolType.SCROLL) {
+                                } else if (clickedShape != null) {
+                                    selectedShapeId = clickedShape.id
+                                    selectedSignatureId = null
+                                    selectedTextAnnotationId = null
+                                    selectedHighlightId = null
+                                } else if (currentTool == ToolType.SIGNATURE) {
+                                    pendingSignatureLocation = SignatureLocation(index, tapX, tapY)
+                                    showSignaturePad = true
+                                } else if (currentTool == ToolType.SCROLL || currentTool == ToolType.SHAPE) {
                                     selectedShapeId = null
+                                    selectedSignatureId = null
                                     selectedTextAnnotationId = null
                                     selectedHighlightId = null
                                 }
                             }
                         }) {
+                            signatureAnnotations.filter { it.pageIndex == index }.forEach { sig ->
+                                val sX = boxWidth.toPx() * sig.startX
+                                val sY = boxHeight.toPx() * sig.startY
+                                val eX = boxWidth.toPx() * sig.endX
+                                val eY = boxHeight.toPx() * sig.endY
+                                val w = eX - sX
+                                val h = eY - sY
+                                
+                                val isSelected = selectedSignatureId == sig.id
+                                if (isSelected) {
+                                    drawRect(
+                                        color = Color.Blue.copy(alpha = 0.3f),
+                                        topLeft = Offset(minOf(sX, eX) - 10f, minOf(sY, eY) - 10f),
+                                        size = androidx.compose.ui.geometry.Size(kotlin.math.abs(w) + 20f, kotlin.math.abs(h) + 20f),
+                                        style = Stroke(width = 2f, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f))
+                                    )
+                                    drawCircle(color = Color.Blue, radius = 16f, center = Offset(sX, sY))
+                                    drawCircle(color = Color.White, radius = 12f, center = Offset(sX, sY))
+                                    drawCircle(color = Color.Blue, radius = 16f, center = Offset(eX, eY))
+                                    drawCircle(color = Color.White, radius = 12f, center = Offset(eX, eY))
+                                }
+                                
+                                sig.strokes.forEach { stroke ->
+                                    if (stroke.size > 1) {
+                                        val path = Path().apply {
+                                            val startPtX = sX + (stroke.first().x * w)
+                                            val startPtY = sY + (stroke.first().y * h)
+                                            moveTo(startPtX, startPtY)
+                                            for (i in 1 until stroke.size) {
+                                                lineTo(sX + (stroke[i].x * w), sY + (stroke[i].y * h))
+                                            }
+                                        }
+                                        drawPath(path, sig.color, style = Stroke(width = sig.strokeWidth, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+                                    } else if (stroke.size == 1) {
+                                        drawCircle(sig.color, radius = sig.strokeWidth / 2f, center = Offset(sX + (stroke.first().x * w), sY + (stroke.first().y * h)))
+                                    }
+                                }
+                            }
+                            
                             shapeAnnotations.filter { it.pageIndex == index }.forEach { shape ->
                                 val sX = boxWidth.toPx() * shape.startX
                                 val sY = boxHeight.toPx() * shape.startY
@@ -274,6 +517,11 @@ fun PdfViewerScreen(
                                         size = androidx.compose.ui.geometry.Size(kotlin.math.abs(w) + 20f, kotlin.math.abs(h) + 20f),
                                         style = Stroke(width = 2f, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f))
                                     )
+                                    // Draw visible resize grab handles
+                                    drawCircle(color = Color.Blue, radius = 16f, center = Offset(sX, sY))
+                                    drawCircle(color = Color.White, radius = 12f, center = Offset(sX, sY))
+                                    drawCircle(color = Color.Blue, radius = 16f, center = Offset(eX, eY))
+                                    drawCircle(color = Color.White, radius = 12f, center = Offset(eX, eY))
                                 }
                                 
                                 when (shape.type) {
@@ -549,6 +797,25 @@ fun PdfViewerScreen(
                 } else {
                     selectedShapeId = null
                 }
+            } else if (selectedSignatureId != null) {
+                val selectedSignature = signatureAnnotations.find { it.id == selectedSignatureId }
+                if (selectedSignature != null) {
+                    Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 32.dp)) {
+                        SignatureFormattingMenu(
+                            annotation = selectedSignature,
+                            onUpdate = { updatedAnnotation ->
+                                val idx = signatureAnnotations.indexOfFirst { it.id == selectedSignature.id }
+                                if (idx != -1) signatureAnnotations[idx] = updatedAnnotation
+                            },
+                            onDelete = { 
+                                signatureAnnotations.removeIf { it.id == selectedSignature.id }
+                                selectedSignatureId = null
+                            }
+                        )
+                    }
+                } else {
+                    selectedSignatureId = null
+                }
             } else if (currentTool == ToolType.SHAPE) {
                 Surface(
                     modifier = Modifier
@@ -570,12 +837,8 @@ fun PdfViewerScreen(
                         
                         ShapeType.values().forEach { type ->
                             val isSelected = currentShapeType == type
-                            val iconName = when(type) {
-                                ShapeType.RECTANGLE -> "[]"
-                                ShapeType.OVAL -> "O"
-                                ShapeType.LINE -> "/"
-                                ShapeType.ARROW -> "->"
-                            }
+                            val iconColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                            
                             IconButton(
                                 onClick = { currentShapeType = type },
                                 modifier = Modifier.background(
@@ -583,7 +846,26 @@ fun PdfViewerScreen(
                                     RoundedCornerShape(8.dp)
                                 )
                             ) {
-                                Text(iconName, fontWeight = FontWeight.Bold, color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface)
+                                Canvas(modifier = Modifier.size(20.dp)) {
+                                    val strokeW = 4f
+                                    val padding = 2f
+                                    when(type) {
+                                        ShapeType.RECTANGLE -> {
+                                            drawRect(color = iconColor, style = Stroke(width = strokeW), topLeft = Offset(padding, padding), size = androidx.compose.ui.geometry.Size(size.width - padding*2, size.height - padding*2))
+                                        }
+                                        ShapeType.OVAL -> {
+                                            drawOval(color = iconColor, style = Stroke(width = strokeW), topLeft = Offset(padding, padding), size = androidx.compose.ui.geometry.Size(size.width - padding*2, size.height - padding*2))
+                                        }
+                                        ShapeType.LINE -> {
+                                            drawLine(color = iconColor, strokeWidth = strokeW, start = Offset(padding, size.height - padding), end = Offset(size.width - padding, padding))
+                                        }
+                                        ShapeType.ARROW -> {
+                                            drawLine(color = iconColor, strokeWidth = strokeW, start = Offset(padding, size.height - padding), end = Offset(size.width - padding, padding))
+                                            drawLine(color = iconColor, strokeWidth = strokeW, start = Offset(size.width - padding, padding), end = Offset(size.width - padding - 10f, padding))
+                                            drawLine(color = iconColor, strokeWidth = strokeW, start = Offset(size.width - padding, padding), end = Offset(size.width - padding, padding + 10f))
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -643,16 +925,183 @@ fun PdfViewerScreen(
                                 CircleShape
                             )
                         ) {
-                            Text("S", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                            val iconColor = if (currentTool == ToolType.SHAPE) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                            Canvas(modifier = Modifier.size(20.dp)) {
+                                drawRect(
+                                    color = iconColor,
+                                    style = Stroke(width = 5f),
+                                    topLeft = Offset(2f, 2f),
+                                    size = androidx.compose.ui.geometry.Size(size.width - 4f, size.height - 4f)
+                                )
+                            }
+                        }
+                        
+                        // Signature Tool
+                        IconButton(
+                            onClick = { currentTool = ToolType.SIGNATURE },
+                            modifier = Modifier.background(
+                                if (currentTool == ToolType.SIGNATURE) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                CircleShape
+                            )
+                        ) {
+                            val iconColor = if (currentTool == ToolType.SIGNATURE) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                            Canvas(modifier = Modifier.size(20.dp)) {
+                                val path = Path().apply {
+                                    // Quill pen tip
+                                    moveTo(size.width * 0.1f, size.height * 0.9f)
+                                    lineTo(size.width * 0.3f, size.height * 0.9f)
+                                    lineTo(size.width * 0.2f, size.height * 0.7f)
+                                    close()
+                                    
+                                    // Feather body
+                                    moveTo(size.width * 0.2f, size.height * 0.7f)
+                                    quadraticBezierTo(size.width * 0.1f, size.height * 0.2f, size.width * 0.9f, size.height * 0.1f)
+                                    quadraticBezierTo(size.width * 0.8f, size.height * 0.6f, size.width * 0.2f, size.height * 0.7f)
+                                    
+                                    // Feather details
+                                    moveTo(size.width * 0.5f, size.height * 0.3f)
+                                    lineTo(size.width * 0.65f, size.height * 0.25f)
+                                    moveTo(size.width * 0.4f, size.height * 0.45f)
+                                    lineTo(size.width * 0.55f, size.height * 0.4f)
+                                    moveTo(size.width * 0.3f, size.height * 0.6f)
+                                    lineTo(size.width * 0.45f, size.height * 0.55f)
+                                }
+                                drawPath(path, color = iconColor, style = Stroke(width = 1.5f))
+                            }
                         }
                         
                         Divider(modifier = Modifier.height(24.dp).width(1.dp))
                         
                         // Save Button
                         IconButton(
-                            onClick = { onSaveRequested(textAnnotations, highlightAnnotations, shapeAnnotations) }
+                            onClick = { onSaveRequested(textAnnotations, highlightAnnotations, shapeAnnotations, signatureAnnotations) }
                         ) {
                             Icon(Icons.Filled.Check, contentDescription = "Save", tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    if (showSignaturePad) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { showSignaturePad = false }) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1.5f),
+                shape = RoundedCornerShape(16.dp),
+                color = Color.White
+            ) {
+                var strokes by remember { mutableStateOf(listOf<List<androidx.compose.ui.geometry.Offset>>()) }
+                var currentStroke by remember { mutableStateOf(listOf<androidx.compose.ui.geometry.Offset>()) }
+                
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Text("Draw Signature", modifier = Modifier.padding(16.dp), fontWeight = FontWeight.Bold)
+                    
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth().background(Color(0xFFF5F5F5))) {
+                        Canvas(modifier = Modifier.fillMaxSize().pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = { offset ->
+                                    currentStroke = listOf(offset)
+                                },
+                                onDrag = { change, _ ->
+                                    change.consume()
+                                    currentStroke = currentStroke + change.position
+                                },
+                                onDragEnd = {
+                                    if (currentStroke.isNotEmpty()) {
+                                        strokes = strokes + listOf(currentStroke)
+                                        currentStroke = emptyList()
+                                    }
+                                }
+                            )
+                        }) {
+                            val drawStrokes = strokes + if (currentStroke.isNotEmpty()) listOf(currentStroke) else emptyList()
+                            drawStrokes.forEach { stroke ->
+                                if (stroke.size > 1) {
+                                    val path = Path().apply {
+                                        moveTo(stroke.first().x, stroke.first().y)
+                                        for (i in 1 until stroke.size) {
+                                            lineTo(stroke[i].x, stroke[i].y)
+                                        }
+                                    }
+                                    drawPath(path, Color.Black, style = Stroke(width = 5f, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+                                } else if (stroke.size == 1) {
+                                    drawCircle(Color.Black, radius = 2.5f, center = stroke.first())
+                                }
+                            }
+                        }
+                    }
+                    
+                    Row(modifier = Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { strokes = emptyList() }) {
+                            Text("Clear")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        TextButton(onClick = { 
+                            showSignaturePad = false
+                            pendingSignatureLocation = null
+                        }) {
+                            Text("Cancel")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(onClick = {
+                            if (strokes.isNotEmpty()) {
+                                // Calculate bounding box of all strokes
+                                var minX = Float.MAX_VALUE
+                                var minY = Float.MAX_VALUE
+                                var maxX = Float.MIN_VALUE
+                                var maxY = Float.MIN_VALUE
+                                
+                                strokes.forEach { stroke ->
+                                    stroke.forEach { pt ->
+                                        if (pt.x < minX) minX = pt.x
+                                        if (pt.x > maxX) maxX = pt.x
+                                        if (pt.y < minY) minY = pt.y
+                                        if (pt.y > maxY) maxY = pt.y
+                                    }
+                                }
+                                
+                                // Normalize strokes to 0f..1f relative to their bounding box
+                                val width = maxX - minX
+                                val height = maxY - minY
+                                val normalizedStrokes = strokes.map { stroke ->
+                                    stroke.map { pt ->
+                                        androidx.compose.ui.geometry.Offset(
+                                            x = if (width > 0) (pt.x - minX) / width else 0f,
+                                            y = if (height > 0) (pt.y - minY) / height else 0f
+                                        )
+                                    }
+                                }
+                                
+                                val sigAspect = if (height > 0) width / height else 2f
+                                val sigWidth = 0.3f
+                                val sigHeight = sigWidth / sigAspect
+                                
+                                val loc = pendingSignatureLocation
+                                val targetPageIndex = loc?.pageIndex ?: listState.firstVisibleItemIndex
+                                val targetStartX = loc?.relativeX ?: (0.5f - (sigWidth / 2f))
+                                val targetStartY = loc?.relativeY ?: (0.5f - (sigHeight / 2f))
+                                
+                                val sig = SignatureAnnotation(
+                                    pageIndex = targetPageIndex,
+                                    strokes = normalizedStrokes,
+                                    startX = targetStartX,
+                                    startY = targetStartY,
+                                    endX = targetStartX + sigWidth,
+                                    endY = targetStartY + sigHeight,
+                                    color = Color.Black,
+                                    strokeWidth = 3f
+                                )
+                                signatureAnnotations.add(sig)
+                                selectedSignatureId = sig.id
+                                currentTool = ToolType.SCROLL
+                            }
+                            showSignaturePad = false
+                            pendingSignatureLocation = null
+                        }) {
+                            Text("Done")
                         }
                     }
                 }
@@ -1032,6 +1481,52 @@ fun ShapeFormattingMenu(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Filled:")
                     Checkbox(checked = annotation.isFilled, onCheckedChange = { onUpdate(annotation.copy(isFilled = it)) })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SignatureFormattingMenu(
+    annotation: SignatureAnnotation,
+    onUpdate: (SignatureAnnotation) -> Unit,
+    onDelete: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shadowElevation = 8.dp
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                // Color Picker
+                val colors = listOf(Color.Red, Color.Blue, Color.Green, Color.Black, Color(1f, 1f, 0f), Color.White)
+                var expanded by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { expanded = true }) {
+                        Box(modifier = Modifier.size(24.dp).background(annotation.color.copy(alpha = 1f), CircleShape).border(1.dp, Color.Gray, CircleShape))
+                    }
+                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        colors.forEach { c ->
+                            DropdownMenuItem(
+                                text = { Box(modifier = Modifier.size(24.dp).background(c, CircleShape).border(1.dp, Color.Gray, CircleShape)) },
+                                onClick = { onUpdate(annotation.copy(color = c)); expanded = false }
+                            )
+                        }
+                    }
+                }
+                
+                // Stroke Width Slider
+                Slider(
+                    value = annotation.strokeWidth,
+                    onValueChange = { onUpdate(annotation.copy(strokeWidth = it)) },
+                    valueRange = 1f..10f,
+                    modifier = Modifier.width(100.dp)
+                )
+                
+                IconButton(onClick = onDelete, modifier = Modifier.background(MaterialTheme.colorScheme.errorContainer, CircleShape)) {
+                    Icon(Icons.Filled.Close, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onErrorContainer)
                 }
             }
         }

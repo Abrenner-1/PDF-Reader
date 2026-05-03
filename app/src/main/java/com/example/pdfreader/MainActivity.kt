@@ -71,13 +71,14 @@ class MainActivity : ComponentActivity() {
                         var currentAnnotations by remember { mutableStateOf<List<TextAnnotation>>(emptyList()) }
                         var currentHighlights by remember { mutableStateOf<List<HighlightAnnotation>>(emptyList()) }
                         var currentShapes by remember { mutableStateOf<List<ShapeAnnotation>>(emptyList()) }
+                        var currentSignatures by remember { mutableStateOf<List<SignatureAnnotation>>(emptyList()) }
                         
                         val saveAsPicker = rememberLauncherForActivityResult(
                             contract = ActivityResultContracts.CreateDocument("application/pdf")
                         ) { uri: Uri? ->
                             uri?.let {
                                 scope.launch {
-                                    pdfEngine.saveDocument(it, currentAnnotations, currentHighlights, currentShapes)
+                                    pdfEngine.saveDocument(it, currentAnnotations, currentHighlights, currentShapes, currentSignatures)
                                 }
                             }
                         }
@@ -85,10 +86,11 @@ class MainActivity : ComponentActivity() {
                         PdfViewerScreen(
                             pageCount = pageCount,
                             getPageBitmap = { index, scale -> pdfEngine.renderPageToBitmap(index, scale) },
-                            onSaveRequested = { annotations, highlights, shapes -> 
+                            onSaveRequested = { annotations, highlights, shapes, signatures -> 
                                 currentAnnotations = annotations
                                 currentHighlights = highlights
                                 currentShapes = shapes
+                                currentSignatures = signatures
                                 showSaveDialog = true 
                             },
                             onCloseDocument = {
@@ -102,7 +104,7 @@ class MainActivity : ComponentActivity() {
                                 onDismiss = { showSaveDialog = false },
                                 onOverwrite = {
                                     scope.launch {
-                                        pdfEngine.saveDocument(selectedUri!!, currentAnnotations, currentHighlights)
+                                        pdfEngine.saveDocument(selectedUri!!, currentAnnotations, currentHighlights, currentShapes, currentSignatures)
                                         showSaveDialog = false
                                     }
                                 },
