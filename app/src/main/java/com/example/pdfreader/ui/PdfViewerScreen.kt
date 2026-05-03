@@ -15,10 +15,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -135,6 +137,11 @@ fun PdfViewerScreen(
     var offsetX by remember { mutableStateOf(0f) }
     var offsetY by remember { mutableStateOf(0f) }
 
+    // Fast Scroller state
+    var isScrubbing by remember { mutableStateOf(false) }
+    var scrubberY by remember { mutableStateOf(0f) }
+    var listHeight by remember { mutableStateOf(0f) }
+
     LaunchedEffect(listState) {
         snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
             .collect { (index, offset) ->
@@ -173,9 +180,9 @@ fun PdfViewerScreen(
                     .fillMaxSize()
                     .pointerInput(Unit) {
                         awaitEachGesture {
-                            awaitFirstDown()
+                            awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
                             do {
-                                val event = awaitPointerEvent()
+                                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
                                 val zoom = event.calculateZoom()
                                 val pan = event.calculatePan()
                                 
@@ -206,6 +213,7 @@ fun PdfViewerScreen(
                     userScrollEnabled = scale == 1f,
                     modifier = Modifier
                         .fillMaxSize()
+                        .onGloballyPositioned { listHeight = it.size.height.toFloat() }
                     .background(Color.DarkGray)
                     // If user clicks outside a text box, deselect it
                     .pointerInput(Unit) {
@@ -904,16 +912,82 @@ Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 80.dp, start = 1
     }
 }
 
-// Full-screen Toggle
-Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = 80.dp, end = 16.dp).zIndex(1000f)) {
-    androidx.compose.animation.AnimatedVisibility(visible = toolsVisible, enter = fadeIn(), exit = fadeOut()) {
-        Surface(
-            shape = CircleShape,
-            color = Color.Black.copy(alpha = 0.6f)
-        ) {
-            IconButton(onClick = { toolsVisible = false }, modifier = Modifier.size(36.dp)) {
-                Icon(androidx.compose.material.icons.Icons.Filled.Fullscreen, contentDescription = "Full Screen", tint = Color.White)
+// Fast Scroller
+if (pageCount > 1 && listHeight > 0) {
+    val thumbHeight = 48.dp
+    val safeTop = 80.dp
+    val safeBottom = 120.dp
+    val thumbHeightPx = with(androidx.compose.ui.platform.LocalDensity.current) { thumbHeight.toPx() }
+    val safeTopPx = with(androidx.compose.ui.platform.LocalDensity.current) { safeTop.toPx() }
+    val safeBottomPx = with(androidx.compose.ui.platform.LocalDensity.current) { safeBottom.toPx() }
+    
+    val usableHeight = (listHeight - safeTopPx - safeBottomPx).coerceAtLeast(0f)
+    val maxScrollY = (usableHeight - thumbHeightPx).coerceAtLeast(0f)
+    
+    val currentY = safeTopPx + if (isScrubbing) scrubberY else (listState.firstVisibleItemIndex.toFloat() / maxOf(1, pageCount - 1)) * maxScrollY
+    
+    Box(
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .padding(end = 4.dp)
+            .offset { androidx.compose.ui.unit.IntOffset(0, currentY.toInt()) }
+            .zIndex(1000f)
+    ) {
+        androidx.compose.animation.AnimatedVisibility(visible = toolsVisible || isScrubbing, enter = fadeIn(), exit = fadeOut()) {
+            Surface(
+                shape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp, topEnd = 4.dp, bottomEnd = 4.dp),
+                color = Color.Black.copy(alpha = 0.6f),
+                modifier = Modifier
+                    .size(32.dp, thumbHeight) // Made slightly wider for easier grabbing
+                    .pointerInput(Unit) {
+                        detectVerticalDragGestures(
+                            onDragStart = { 
+                                isScrubbing = true 
+                                scrubberY = currentY - safeTopPx
+                            },
+                            onDragEnd = { isScrubbing = false },
+                            onDragCancel = { isScrubbing = false }
+                        ) { change, dragAmount ->
+                            change.consume()
+                            scrubberY = (scrubberY + dragAmount).coerceIn(0f, maxScrollY)
+                            val targetIndex = ((scrubberY / maxScrollY) * (pageCount - 1)).toInt().coerceIn(0, pageCount - 1)
+                            coroutineScope.launch {
+                                listState.scrollToItem(targetIndex)
+                            }
+                        }
+                    }
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    Icon(androidx.compose.material.icons.Icons.Filled.KeyboardArrowUp, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
+                    Icon(androidx.compose.material.icons.Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
+                }
             }
+        }
+    }
+}
+
+// Center Page Indicator overlay
+if (isScrubbing) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(2000f),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color.Black.copy(alpha = 0.7f),
+            modifier = Modifier.padding(32.dp)
+        ) {
+            val currentIndex = listState.firstVisibleItemIndex + 1
+            Text(
+                text = "$currentIndex / $pageCount",
+                color = Color.White,
+                fontSize = 32.sp,
+                fontWeight = FontWeight.Bold,
+                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                modifier = Modifier.padding(horizontal = 32.dp, vertical = 24.dp)
+            )
         }
     }
 }
