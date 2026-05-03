@@ -33,14 +33,15 @@ com.example.pdfreader.app-ui-unit-1.4.0-31 C:\Users\andyb\.gradle\caches\transfo
 com.example.pdfreader.app-ui-test-manifest-1.4.0-32 C:\Users\andyb\.gradle\caches\transforms-3\c998595619534a8030d879864d129091\transformed\ui-test-manifest-1.4.0\res
 com.example.pdfreader.app-animation-1.4.0-33 C:\Users\andyb\.gradle\caches\transforms-3\cb48a1fd4c4ac6db2f2766f7504bec0e\transformed\animation-1.4.0\res
 com.example.pdfreader.app-annotation-experimental-1.3.0-34 C:\Users\andyb\.gradle\caches\transforms-3\cbebb4fa2cd1286ef0aea5436845a714\transformed\annotation-experimental-1.3.0\res
-com.example.pdfreader.app-ui-1.4.0-35 C:\Users\andyb\.gradle\caches\transforms-3\d946b6c65dcd1843a6772c73e4c2ca1d\transformed\ui-1.4.0\res
-com.example.pdfreader.app-profileinstaller-1.3.0-36 C:\Users\andyb\.gradle\caches\transforms-3\d98aa2d401008bf708f440c4ab870707\transformed\profileinstaller-1.3.0\res
-com.example.pdfreader.app-lifecycle-viewmodel-ktx-2.6.2-37 C:\Users\andyb\.gradle\caches\transforms-3\dda9a11084a66e91bf0d03d3a8b8cc0d\transformed\lifecycle-viewmodel-ktx-2.6.2\res
-com.example.pdfreader.app-ui-tooling-data-1.4.0-38 C:\Users\andyb\.gradle\caches\transforms-3\f90409eead473b7203f022cef0064a5d\transformed\ui-tooling-data-1.4.0\res
-com.example.pdfreader.app-material-1.4.0-39 C:\Users\andyb\.gradle\caches\transforms-3\fc9f4834a9badecebc52322fd8950c5f\transformed\material-1.4.0\res
-com.example.pdfreader.app-resValues-40 G:\My Drive\Mobile Apps\PDF Reader\app\build\generated\res\resValues\debug
-com.example.pdfreader.app-packageDebugResources-41 G:\My Drive\Mobile Apps\PDF Reader\app\build\intermediates\incremental\debug\packageDebugResources\merged.dir
-com.example.pdfreader.app-packageDebugResources-42 G:\My Drive\Mobile Apps\PDF Reader\app\build\intermediates\incremental\debug\packageDebugResources\stripped.dir
-com.example.pdfreader.app-merged_res-43 G:\My Drive\Mobile Apps\PDF Reader\app\build\intermediates\merged_res\debug
-com.example.pdfreader.app-debug-44 G:\My Drive\Mobile Apps\PDF Reader\app\src\debug\res
-com.example.pdfreader.app-main-45 G:\My Drive\Mobile Apps\PDF Reader\app\src\main\res
+com.example.pdfreader.app-material-icons-extended-1.4.0-35 C:\Users\andyb\.gradle\caches\transforms-3\d3a3198e7f754d985b357c1c40559cff\transformed\material-icons-extended-1.4.0\res
+com.example.pdfreader.app-ui-1.4.0-36 C:\Users\andyb\.gradle\caches\transforms-3\d946b6c65dcd1843a6772c73e4c2ca1d\transformed\ui-1.4.0\res
+com.example.pdfreader.app-profileinstaller-1.3.0-37 C:\Users\andyb\.gradle\caches\transforms-3\d98aa2d401008bf708f440c4ab870707\transformed\profileinstaller-1.3.0\res
+com.example.pdfreader.app-lifecycle-viewmodel-ktx-2.6.2-38 C:\Users\andyb\.gradle\caches\transforms-3\dda9a11084a66e91bf0d03d3a8b8cc0d\transformed\lifecycle-viewmodel-ktx-2.6.2\res
+com.example.pdfreader.app-ui-tooling-data-1.4.0-39 C:\Users\andyb\.gradle\caches\transforms-3\f90409eead473b7203f022cef0064a5d\transformed\ui-tooling-data-1.4.0\res
+com.example.pdfreader.app-material-1.4.0-40 C:\Users\andyb\.gradle\caches\transforms-3\fc9f4834a9badecebc52322fd8950c5f\transformed\material-1.4.0\res
+com.example.pdfreader.app-resValues-41 G:\My Drive\Mobile Apps\PDF Reader\app\build\generated\res\resValues\debug
+com.example.pdfreader.app-packageDebugResources-42 G:\My Drive\Mobile Apps\PDF Reader\app\build\intermediates\incremental\debug\packageDebugResources\merged.dir
+com.example.pdfreader.app-packageDebugResources-43 G:\My Drive\Mobile Apps\PDF Reader\app\build\intermediates\incremental\debug\packageDebugResources\stripped.dir
+com.example.pdfreader.app-merged_res-44 G:\My Drive\Mobile Apps\PDF Reader\app\build\intermediates\merged_res\debug
+com.example.pdfreader.app-debug-45 G:\My Drive\Mobile Apps\PDF Reader\app\src\debug\res
+com.example.pdfreader.app-main-46 G:\My Drive\Mobile Apps\PDF Reader\app\src\main\res

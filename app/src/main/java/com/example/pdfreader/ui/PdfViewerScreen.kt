@@ -11,6 +11,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -26,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.focus.FocusRequester
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.window.Popup
@@ -61,6 +64,8 @@ data class SignatureLocation(val pageIndex: Int, val relativeX: Float, val relat
 fun PdfViewerScreen(
     pageCount: Int,
     getPageBitmap: suspend (Int, Float) -> Bitmap?,
+    isDarkMode: Boolean,
+    onToggleDarkMode: () -> Unit,
     onSaveRequested: (List<TextAnnotation>, List<HighlightAnnotation>, List<ShapeAnnotation>, List<SignatureAnnotation>) -> Unit,
     onCloseDocument: () -> Unit
 ) {
@@ -68,7 +73,16 @@ fun PdfViewerScreen(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     var currentTool by remember { mutableStateOf(ToolType.SCROLL) }
+    var moreToolsExpanded by remember { mutableStateOf(false) }
     
+    BackHandler {
+        if (sidebarOpen) {
+            sidebarOpen = false
+        } else {
+            onCloseDocument()
+        }
+    }
+
     // Store our interactive annotations
     val textAnnotations = remember { mutableStateListOf<TextAnnotation>() }
     val highlightAnnotations = remember { mutableStateListOf<HighlightAnnotation>() }
@@ -130,12 +144,12 @@ fun PdfViewerScreen(
                         bitmap = getPageBitmap(index, 1f)
                     }
 
-                    val isSelectedPage = (selectedSignatureId != null && signatureAnnotations.any { it.id == selectedSignatureId && it.pageIndex == index }) ||
-                                         (selectedShapeId != null && shapeAnnotations.any { it.id == selectedShapeId && it.pageIndex == index })
+                    val isSelectedPage = (selectedSignatureId != null && signatureAnnotations.any { it.id == selectedSignatureId && (it.pageIndex == index || it.pageIndex == index - 1 || it.pageIndex == index + 1) }) ||
+                                         (selectedShapeId != null && shapeAnnotations.any { it.id == selectedShapeId && (it.pageIndex == index || it.pageIndex == index - 1 || it.pageIndex == index + 1) })
 
                     BoxWithConstraints(
                         modifier = Modifier
-                            .zIndex(if (isSelectedPage) 1f else 0f)
+                            .zIndex((pageCount - index).toFloat() + if (isSelectedPage) 1000f else 0f)
                             .fillMaxWidth()
                             .aspectRatio(0.75f) // Approximate PDF aspect ratio A4
                             .background(Color.White)
@@ -204,12 +218,17 @@ fun PdfViewerScreen(
                                             val pixelX = offset.x
                                             val pixelY = offset.y
                                             
-                                            val sig = signatureAnnotations.find { it.id == selectedSignatureId && it.pageIndex == index }
+                                            val sig = signatureAnnotations.find { it.id == selectedSignatureId && (it.pageIndex == index || it.pageIndex == index - 1 || it.pageIndex == index + 1) }
                                             if (sig != null) {
+                                                val yOffset = when(sig.pageIndex) {
+                                                    index - 1 -> -1.0f
+                                                    index + 1 -> 1.0f
+                                                    else -> 0.0f
+                                                }
                                                 val shapeStartX = sig.startX * size.width
-                                                val shapeStartY = sig.startY * size.height
+                                                val shapeStartY = (sig.startY + yOffset) * size.height
                                                 val shapeEndX = sig.endX * size.width
-                                                val shapeEndY = sig.endY * size.height
+                                                val shapeEndY = (sig.endY + yOffset) * size.height
                                                 
                                                 val distToStart = kotlin.math.hypot((pixelX - shapeStartX).toDouble(), (pixelY - shapeStartY).toDouble()).toFloat()
                                                 val distToEnd = kotlin.math.hypot((pixelX - shapeEndX).toDouble(), (pixelY - shapeEndY).toDouble()).toFloat()
@@ -228,8 +247,8 @@ fun PdfViewerScreen(
                                                 
                                                 val minX = minOf(sig.startX, sig.endX) - 0.05f
                                                 val maxX = maxOf(sig.startX, sig.endX) + 0.05f
-                                                val minY = minOf(sig.startY, sig.endY) - 0.05f
-                                                val maxY = maxOf(sig.startY, sig.endY) + 0.05f
+                                                val minY = minOf(sig.startY + yOffset, sig.endY + yOffset) - 0.05f
+                                                val maxY = maxOf(sig.startY + yOffset, sig.endY + yOffset) + 0.05f
                                                 
                                                 if (relativeX in minX..maxX && relativeY in minY..maxY) {
                                                     isMoving = true
@@ -299,12 +318,17 @@ fun PdfViewerScreen(
                                             val pixelY = offset.y
                                             
                                             if (selectedShapeId != null) {
-                                                val shape = shapeAnnotations.find { it.id == selectedShapeId && it.pageIndex == index }
+                                                val shape = shapeAnnotations.find { it.id == selectedShapeId && (it.pageIndex == index || it.pageIndex == index - 1 || it.pageIndex == index + 1) }
                                                 if (shape != null) {
+                                                    val yOffset = when(shape.pageIndex) {
+                                                        index - 1 -> -1.0f
+                                                        index + 1 -> 1.0f
+                                                        else -> 0.0f
+                                                    }
                                                     val shapeStartX = shape.startX * size.width
-                                                    val shapeStartY = shape.startY * size.height
+                                                    val shapeStartY = (shape.startY + yOffset) * size.height
                                                     val shapeEndX = shape.endX * size.width
-                                                    val shapeEndY = shape.endY * size.height
+                                                    val shapeEndY = (shape.endY + yOffset) * size.height
                                                     
                                                     val distToStart = kotlin.math.hypot((pixelX - shapeStartX).toDouble(), (pixelY - shapeStartY).toDouble()).toFloat()
                                                     val distToEnd = kotlin.math.hypot((pixelX - shapeEndX).toDouble(), (pixelY - shapeEndY).toDouble()).toFloat()
@@ -323,8 +347,8 @@ fun PdfViewerScreen(
                                                     
                                                     val minX = minOf(shape.startX, shape.endX) - 0.05f
                                                     val maxX = maxOf(shape.startX, shape.endX) + 0.05f
-                                                    val minY = minOf(shape.startY, shape.endY) - 0.05f
-                                                    val maxY = maxOf(shape.startY, shape.endY) + 0.05f
+                                                    val minY = minOf(shape.startY + yOffset, shape.endY + yOffset) - 0.05f
+                                                    val maxY = maxOf(shape.startY + yOffset, shape.endY + yOffset) + 0.05f
                                                     
                                                     if (relativeX in minX..maxX && relativeY in minY..maxY) {
                                                         isMoving = true
@@ -419,21 +443,33 @@ fun PdfViewerScreen(
                                 val tapX = offset.x / size.width
                                 val tapY = offset.y / size.height
                                 
-                                val clickedSig = signatureAnnotations.filter { it.pageIndex == index }.findLast { sig ->
-                                    val minX = minOf(sig.startX, sig.endX) - 0.05f
-                                    val maxX = maxOf(sig.startX, sig.endX) + 0.05f
-                                    val minY = minOf(sig.startY, sig.endY) - 0.05f
-                                    val maxY = maxOf(sig.startY, sig.endY) + 0.05f
-                                    tapX in minX..maxX && tapY in minY..maxY
+                                val clickedSig = signatureAnnotations.findLast { sig ->
+                                    val isHit = { sY: Float, eY: Float, tY: Float ->
+                                        val minX = minOf(sig.startX, sig.endX) - 0.05f
+                                        val maxX = maxOf(sig.startX, sig.endX) + 0.05f
+                                        val minY = minOf(sY, eY) - 0.05f
+                                        val maxY = maxOf(sY, eY) + 0.05f
+                                        tapX in minX..maxX && tY in minY..maxY
+                                    }
+                                    if (sig.pageIndex == index) isHit(sig.startY, sig.endY, tapY)
+                                    else if (sig.pageIndex == index - 1) isHit(sig.startY - 1.0f, sig.endY - 1.0f, tapY)
+                                    else if (sig.pageIndex == index + 1) isHit(sig.startY + 1.0f, sig.endY + 1.0f, tapY)
+                                    else false
                                 }
                                 
                                 val clickedShape = if (clickedSig == null) {
-                                    shapeAnnotations.filter { it.pageIndex == index }.findLast { shape ->
-                                        val minX = minOf(shape.startX, shape.endX) - 0.05f
-                                        val maxX = maxOf(shape.startX, shape.endX) + 0.05f
-                                        val minY = minOf(shape.startY, shape.endY) - 0.05f
-                                        val maxY = maxOf(shape.startY, shape.endY) + 0.05f
-                                        tapX in minX..maxX && tapY in minY..maxY
+                                    shapeAnnotations.findLast { shape ->
+                                        val isHit = { sY: Float, eY: Float, tY: Float ->
+                                            val minX = minOf(shape.startX, shape.endX) - 0.05f
+                                            val maxX = maxOf(shape.startX, shape.endX) + 0.05f
+                                            val minY = minOf(sY, eY) - 0.05f
+                                            val maxY = maxOf(sY, eY) + 0.05f
+                                            tapX in minX..maxX && tY in minY..maxY
+                                        }
+                                        if (shape.pageIndex == index) isHit(shape.startY, shape.endY, tapY)
+                                        else if (shape.pageIndex == index - 1) isHit(shape.startY - 1.0f, shape.endY - 1.0f, tapY)
+                                        else if (shape.pageIndex == index + 1) isHit(shape.startY + 1.0f, shape.endY + 1.0f, tapY)
+                                        else false
                                     }
                                 } else null
                                 
@@ -714,27 +750,48 @@ fun PdfViewerScreen(
                 }
             }
 
-            // Top Left: Sidebar Toggle
-            Surface(
-                modifier = Modifier.padding(16.dp).align(Alignment.TopStart).size(48.dp),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                shadowElevation = 4.dp
+            // Top Left: Actions (Back + Sidebar)
+            Row(
+                modifier = Modifier.padding(16.dp).align(Alignment.TopStart),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                IconButton(onClick = { sidebarOpen = !sidebarOpen }) {
-                    Icon(Icons.Filled.Menu, contentDescription = "Toggle Sidebar")
+                Surface(
+                    modifier = Modifier.size(48.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                    shadowElevation = 4.dp
+                ) {
+                    IconButton(onClick = onCloseDocument) {
+                        Icon(androidx.compose.material.icons.Icons.Filled.ArrowBack, contentDescription = "Go Back")
+                    }
+                }
+                
+                Surface(
+                    modifier = Modifier.size(48.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                    shadowElevation = 4.dp
+                ) {
+                    IconButton(onClick = { sidebarOpen = !sidebarOpen }) {
+                        Icon(Icons.Filled.Menu, contentDescription = "Toggle Sidebar")
+                    }
                 }
             }
             
-            // Top Right: Close Document
-            Surface(
-                modifier = Modifier.padding(16.dp).align(Alignment.TopEnd).size(48.dp),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f),
-                shadowElevation = 4.dp
+            // Top Right: Actions (Close)
+            Row(
+                modifier = Modifier.padding(16.dp).align(Alignment.TopEnd),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                IconButton(onClick = onCloseDocument) {
-                    Icon(Icons.Filled.Close, contentDescription = "Close Document")
+                Surface(
+                    modifier = Modifier.size(48.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f),
+                    shadowElevation = 4.dp
+                ) {
+                    IconButton(onClick = onCloseDocument) {
+                        Icon(Icons.Filled.Close, contentDescription = "Close Document")
+                    }
                 }
             }
             
@@ -884,6 +941,45 @@ fun PdfViewerScreen(
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // More Tools Menu
+                        Box {
+                            IconButton(
+                                onClick = { moreToolsExpanded = true },
+                                modifier = Modifier.background(Color.Transparent, CircleShape)
+                            ) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = "More Tools")
+                            }
+                            DropdownMenu(
+                                expanded = moreToolsExpanded,
+                                onDismissRequest = { moreToolsExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(if (isDarkMode) "Light Mode" else "Dark Mode") },
+                                    leadingIcon = { Icon(if (isDarkMode) Icons.Filled.LightMode else Icons.Filled.DarkMode, contentDescription = null) },
+                                    onClick = { 
+                                        onToggleDarkMode()
+                                        moreToolsExpanded = false 
+                                    }
+                                )
+                                Divider()
+                                DropdownMenuItem(
+                                    text = { Text("Image to PDF") },
+                                    leadingIcon = { Icon(androidx.compose.material.icons.Icons.Filled.Add, contentDescription = null) },
+                                    onClick = { moreToolsExpanded = false }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Share PDF") },
+                                    leadingIcon = { Icon(androidx.compose.material.icons.Icons.Filled.Share, contentDescription = null) },
+                                    onClick = { moreToolsExpanded = false }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Fillable Forms") },
+                                    leadingIcon = { Icon(androidx.compose.material.icons.Icons.Filled.List, contentDescription = null) },
+                                    onClick = { moreToolsExpanded = false }
+                                )
+                            }
+                        }
+
                         // Scroll Tool
                         IconButton(
                             onClick = { currentTool = ToolType.SCROLL },
@@ -892,7 +988,7 @@ fun PdfViewerScreen(
                                 CircleShape
                             )
                         ) {
-                            Icon(Icons.Filled.Menu, contentDescription = "Scroll")
+                            Text("Scroll", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
                         
                         // Text Tool
@@ -966,7 +1062,7 @@ fun PdfViewerScreen(
                                     moveTo(size.width * 0.3f, size.height * 0.6f)
                                     lineTo(size.width * 0.45f, size.height * 0.55f)
                                 }
-                                drawPath(path, color = iconColor, style = Stroke(width = 1.5f))
+                                drawPath(path, color = iconColor, style = Stroke(width = 3f, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
                             }
                         }
                         
@@ -1081,8 +1177,8 @@ fun PdfViewerScreen(
                                 
                                 val loc = pendingSignatureLocation
                                 val targetPageIndex = loc?.pageIndex ?: listState.firstVisibleItemIndex
-                                val targetStartX = loc?.relativeX ?: (0.5f - (sigWidth / 2f))
-                                val targetStartY = loc?.relativeY ?: (0.5f - (sigHeight / 2f))
+                                val targetStartX = loc?.relativeX?.let { it - (sigWidth / 2f) } ?: (0.5f - (sigWidth / 2f))
+                                val targetStartY = loc?.relativeY?.let { it - (sigHeight / 2f) } ?: (0.5f - (sigHeight / 2f))
                                 
                                 val sig = SignatureAnnotation(
                                     pageIndex = targetPageIndex,

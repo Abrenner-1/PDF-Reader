@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.example.pdfreader.app-mergeDebugResources-42:/values/values.xml",
+            "outputFile": "com.example.pdfreader.app-mergeDebugResources-43:/values/values.xml",
             "map": [
                 {
                     "source": "C:\\Users\\andyb\\.gradle\\caches\\transforms-3\\b2ffe501425c836fcec5b40ada027f75\\transformed\\lifecycle-runtime-2.6.2\\res\\values\\values.xml",

@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.example.pdfreader.app-mergeDebugResources-42:/values-or/values-or.xml",
+            "outputFile": "com.example.pdfreader.app-mergeDebugResources-43:/values-or/values-or.xml",
             "map": [
                 {
                     "source": "C:\\Users\\andyb\\.gradle\\caches\\transforms-3\\aec9ae481b5cbb10483d3178e6ec027a\\transformed\\material3-1.0.0\\res\\values-or\\values-or.xml",

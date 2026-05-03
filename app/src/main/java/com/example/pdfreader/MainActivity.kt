@@ -32,7 +32,10 @@ class MainActivity : ComponentActivity() {
         pdfEngine = PdfEngine(this)
 
         setContent {
-            PDFReaderTheme {
+            val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+            var isDarkMode by remember { mutableStateOf(systemDark) }
+
+            PDFReaderTheme(darkTheme = isDarkMode) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -54,19 +57,12 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // Auto-launch the file picker when there's no document selected
-                    LaunchedEffect(selectedUri) {
-                        if (selectedUri == null) {
-                            filePicker.launch(arrayOf("application/pdf"))
-                        }
-                    }
-
                     if (selectedUri == null) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                            Button(onClick = { filePicker.launch(arrayOf("application/pdf")) }) {
-                                Text("Open PDF")
-                            }
-                        }
+                        com.example.pdfreader.ui.HomeScreen(
+                            isDarkMode = isDarkMode,
+                            onToggleDarkMode = { isDarkMode = !isDarkMode },
+                            onOpenPdfClick = { filePicker.launch(arrayOf("application/pdf")) }
+                        )
                     } else {
                         var currentAnnotations by remember { mutableStateOf<List<TextAnnotation>>(emptyList()) }
                         var currentHighlights by remember { mutableStateOf<List<HighlightAnnotation>>(emptyList()) }
@@ -86,6 +82,8 @@ class MainActivity : ComponentActivity() {
                         PdfViewerScreen(
                             pageCount = pageCount,
                             getPageBitmap = { index, scale -> pdfEngine.renderPageToBitmap(index, scale) },
+                            isDarkMode = isDarkMode,
+                            onToggleDarkMode = { isDarkMode = !isDarkMode },
                             onSaveRequested = { annotations, highlights, shapes, signatures -> 
                                 currentAnnotations = annotations
                                 currentHighlights = highlights
