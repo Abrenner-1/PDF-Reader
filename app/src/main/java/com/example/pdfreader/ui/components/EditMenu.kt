@@ -1,4 +1,4 @@
-﻿package com.example.pdfreader.ui.components
+package com.example.pdfreader.ui.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -22,11 +22,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.pdfreader.ui.ShapeType
-import com.example.pdfreader.ui.TextAnnotation
-import com.example.pdfreader.ui.HighlightAnnotation
-import com.example.pdfreader.ui.ShapeAnnotation
+import com.example.pdfreader.ShapeType
+import com.example.pdfreader.TextAnnotation
+import com.example.pdfreader.HighlightAnnotation
+import com.example.pdfreader.ShapeAnnotation
 import com.example.pdfreader.ui.ToolType
+import androidx.compose.foundation.border
 
 @Composable
 fun EditSecondaryMenu(
@@ -292,7 +293,7 @@ fun TextFormattingMenu(
                                     },
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    if (isTransparent) Icon(Icons.Filled.Clear, contentDescription = "None", modifier = Modifier.size(14.dp))
+                                    if (isTransparent) Icon(Icons.Filled.Close, contentDescription = "None", modifier = Modifier.size(14.dp))
                                 }
                             }
                         }

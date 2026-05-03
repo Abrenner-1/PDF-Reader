@@ -1,6 +1,6 @@
 package com.example.pdfreader.ui
-import com.example.pdfreader.ui.components.EditMenu
-import com.example.pdfreader.ui.components.SignMenu
+import com.example.pdfreader.ui.components.EditSecondaryMenu
+import com.example.pdfreader.ui.components.SignSecondaryMenu
 import com.example.pdfreader.ui.components.MoreToolsMenu
 import com.example.pdfreader.ui.components.SignatureStorageManager
 
@@ -71,11 +71,9 @@ enum class ToolType { SCROLL, ADD_TEXT, HIGHLIGHT, SHAPE, SIGNATURE }
 
 data class SignatureLocation(val pageIndex: Int, val relativeX: Float, val relativeY: Float)
 
-@OptIn(ExperimentalMaterial3Api::class)
-data class SignatureLocation(val pageIndex: Int, val relativeX: Float, val relativeY: Float)
-
 enum class BottomCategory { EDIT, SIGN, FILL_FORM }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PdfViewerScreen(
     pageCount: Int,
@@ -122,6 +120,11 @@ fun PdfViewerScreen(
         }
     }
 
+    var activeBottomCategory by remember { mutableStateOf<BottomCategory?>(null) }
+    
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val sigManager = remember { com.example.pdfreader.ui.components.SignatureStorageManager(context) }
+    var savedSignatures by remember { mutableStateOf(sigManager.getSignatures()) }
     var showMoreToolsSheet by remember { mutableStateOf(false) }
     var toolsVisible by remember { mutableStateOf(true) }
     var previousScrollOffset by remember { mutableStateOf(0) }
@@ -839,7 +842,7 @@ fun PdfViewerScreen(
             }
             } // Close Zoom Wrapper Box
 
-﻿// Top App Bar
+// Top App Bar
 Box(modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().zIndex(1001f)) {
     androidx.compose.animation.AnimatedVisibility(
         visible = toolsVisible,
@@ -937,36 +940,53 @@ Box(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().zIndex(1001
                         Divider(modifier = Modifier.height(24.dp).width(1.dp).padding(horizontal = 4.dp))
                         
                         if (activeBottomCategory == BottomCategory.EDIT) {
-                            EditMenu(
+                            EditSecondaryMenu(
                                 currentTool = currentTool,
                                 currentShapeType = currentShapeType,
-                                onToolChange = { currentTool = it },
-                                onShapeTypeChange = { currentShapeType = it },
+                                onToolSelected = { currentTool = it },
+                                onShapeSelected = { currentShapeType = it },
+                                onClose = { activeBottomCategory = null; currentTool = ToolType.SCROLL },
                                 textAnnotations = textAnnotations,
                                 highlightAnnotations = highlightAnnotations,
                                 shapeAnnotations = shapeAnnotations,
                                 selectedTextAnnotationId = selectedTextAnnotationId,
                                 selectedHighlightId = selectedHighlightId,
                                 selectedShapeId = selectedShapeId,
-                                onUpdateTextAnnotation = { updated -> val idx = textAnnotations.indexOfFirst { it.id == updated.id }; if(idx!=-1) textAnnotations[idx] = updated },
-                                onDeleteTextAnnotation = { id -> textAnnotations.removeIf { it.id == id }; selectedTextAnnotationId = null },
-                                onUpdateHighlightAnnotation = { updated -> val idx = highlightAnnotations.indexOfFirst { it.id == updated.id }; if(idx!=-1) highlightAnnotations[idx] = updated },
-                                onDeleteHighlightAnnotation = { id -> highlightAnnotations.removeIf { it.id == id }; selectedHighlightId = null },
-                                onUpdateShapeAnnotation = { updated -> val idx = shapeAnnotations.indexOfFirst { it.id == updated.id }; if(idx!=-1) shapeAnnotations[idx] = updated },
-                                onDeleteShapeAnnotation = { id -> shapeAnnotations.removeIf { it.id == id }; selectedShapeId = null }
+                                onUpdateText = { updated -> val idx = textAnnotations.indexOfFirst { it.id == updated.id }; if(idx!=-1) textAnnotations[idx] = updated },
+                                onDeleteText = { id -> textAnnotations.removeIf { it.id == id }; selectedTextAnnotationId = null },
+                                onUpdateHighlight = { updated -> val idx = highlightAnnotations.indexOfFirst { it.id == updated.id }; if(idx!=-1) highlightAnnotations[idx] = updated },
+                                onDeleteHighlight = { id -> highlightAnnotations.removeIf { it.id == id }; selectedHighlightId = null },
+                                onUpdateShape = { updated -> val idx = shapeAnnotations.indexOfFirst { it.id == updated.id }; if(idx!=-1) shapeAnnotations[idx] = updated },
+                                onDeleteShape = { id -> shapeAnnotations.removeIf { it.id == id }; selectedShapeId = null }
                             )
                         } else if (activeBottomCategory == BottomCategory.SIGN) {
-                            val context = androidx.compose.ui.platform.LocalContext.current
-                            val sigManager = androidx.compose.runtime.remember { SignatureStorageManager(context) }
-                            SignMenu(
-                                currentTool = currentTool,
-                                onToolChange = { currentTool = it },
-                                signatureStorageManager = sigManager,
-                                activeSignatures = signatureAnnotations,
+                            SignSecondaryMenu(
+                                onClose = { activeBottomCategory = null; currentTool = ToolType.SCROLL },
+                                savedSignatures = savedSignatures,
+                                onSelectSignature = { sig -> 
+                                    val newSig = SignatureAnnotation(
+                                        pageIndex = listState.firstVisibleItemIndex,
+                                        strokes = sig.toOffsetStrokes(),
+                                        startX = 0.4f,
+                                        startY = 0.4f,
+                                        endX = 0.6f,
+                                        endY = 0.6f,
+                                        color = androidx.compose.ui.graphics.Color.Black,
+                                        strokeWidth = 2f
+                                    )
+                                    signatureAnnotations.add(newSig)
+                                    selectedSignatureId = newSig.id
+                                    currentTool = ToolType.SCROLL
+                                },
+                                onDeleteSignature = { id ->
+                                    sigManager.deleteSignature(id)
+                                    savedSignatures = sigManager.getSignatures()
+                                },
+                                onCreateSignature = { showSignaturePad = true },
                                 selectedSignatureId = selectedSignatureId,
+                                signatureAnnotations = signatureAnnotations,
                                 onUpdateSignature = { updated -> val idx = signatureAnnotations.indexOfFirst { it.id == updated.id }; if(idx!=-1) signatureAnnotations[idx] = updated },
-                                onDeleteSignature = { id -> signatureAnnotations.removeIf { it.id == id }; selectedSignatureId = null },
-                                onSignatureAddedToPdf = { sigManager.saveSignature(it) }
+                                onDeleteAnnotation = { id -> signatureAnnotations.removeIf { it.id == id }; selectedSignatureId = null }
                             )
                         }
                     }
@@ -1120,6 +1140,9 @@ Box(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().zIndex(1001
                                     strokeWidth = 3f
                                 )
                                 signatureAnnotations.add(sig)
+                                val savedSig = com.example.pdfreader.ui.components.SavedSignature.fromOffsetStrokes(strokes)
+                                sigManager.saveSignature(savedSig)
+                                savedSignatures = sigManager.getSignatures()
                                 selectedSignatureId = sig.id
                                 currentTool = ToolType.SCROLL
                             }
