@@ -11,7 +11,7 @@ fun getFileMetadata(context: Context, uri: Uri): Pair<String, Long> {
         context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
             if (cursor.moveToFirst()) {
                 val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (nameIndex != -1) name = cursor.getString(nameIndex)
+                if (nameIndex != -1) name = cursor.getString(nameIndex) ?: "Unknown PDF"
                 
                 val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
                 if (sizeIndex != -1) size = cursor.getLong(sizeIndex)

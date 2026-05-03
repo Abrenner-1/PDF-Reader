@@ -15,7 +15,7 @@ class FileRepository(context: Context) {
         if (json.isNullOrEmpty()) return emptyList()
         val type = object : TypeToken<List<PdfFile>>() {}.type
         return try {
-            gson.fromJson(json, type)
+            gson.fromJson<List<PdfFile>>(json, type) ?: emptyList()
         } catch (e: Exception) {
             emptyList()
         }

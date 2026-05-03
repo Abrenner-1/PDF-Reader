@@ -18,6 +18,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.draw.rotate
 import com.example.pdfreader.PdfFile
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -35,6 +38,7 @@ fun HomeScreen(
 ) {
     var expanded by remember { mutableStateOf(false) }
     var selectedBottomTab by remember { mutableStateOf(0) }
+    var fabExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -101,11 +105,55 @@ fun HomeScreen(
         },
         floatingActionButton = {
             if (selectedBottomTab == 0 || selectedBottomTab == 1) {
-                FloatingActionButton(
-                    onClick = onOpenPdfClick,
-                    containerColor = MaterialTheme.colorScheme.primary
-                ) {
-                    Icon(Icons.Filled.Add, contentDescription = "Open PDF")
+                Column(horizontalAlignment = Alignment.End) {
+                    AnimatedVisibility(
+                        visible = fabExpanded,
+                        enter = fadeIn() + slideInVertically(initialOffsetY = { 50 }),
+                        exit = fadeOut() + slideOutVertically(targetOffsetY = { 50 })
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(bottom = 16.dp)
+                            ) {
+                                Text("Scan to PDF", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(end = 8.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 4.dp))
+                                SmallFloatingActionButton(
+                                    onClick = { fabExpanded = false },
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                                ) {
+                                    Icon(Icons.Filled.CameraAlt, contentDescription = "Scan to PDF")
+                                }
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Open File", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(end = 8.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 4.dp))
+                                SmallFloatingActionButton(
+                                    onClick = { 
+                                        fabExpanded = false
+                                        onOpenPdfClick() 
+                                    },
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                                ) {
+                                    Icon(Icons.Filled.FolderOpen, contentDescription = "Open File")
+                                }
+                            }
+                        }
+                    }
+                    FloatingActionButton(
+                        onClick = { fabExpanded = !fabExpanded },
+                        containerColor = MaterialTheme.colorScheme.primary
+                    ) {
+                        val rotation by animateFloatAsState(targetValue = if (fabExpanded) 45f else 0f)
+                        Icon(
+                            imageVector = Icons.Filled.Add, 
+                            contentDescription = "Create",
+                            modifier = Modifier.rotate(rotation)
+                        )
+                    }
                 }
             }
         }
@@ -132,7 +180,6 @@ fun HomeScreen(
                         .padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    QuickToolItem(Icons.Filled.FolderOpen, "Open File", MaterialTheme.colorScheme.primary, onOpenPdfClick)
                     QuickToolItem(Icons.Filled.Edit, "Annotate", MaterialTheme.colorScheme.secondary, {})
                     QuickToolItem(Icons.Filled.Autorenew, "Convert", MaterialTheme.colorScheme.tertiary, {})
                     QuickToolItem(Icons.Filled.Assignment, "Fill Form", MaterialTheme.colorScheme.error, {})
@@ -142,11 +189,50 @@ fun HomeScreen(
                 
                 Divider(modifier = Modifier.padding(vertical = 16.dp))
                 
+                // Recent Files Preview
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Recent Files",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    TextButton(onClick = { selectedBottomTab = 1 }) {
+                        Text("See All")
+                    }
+                }
+                
+                val previewFiles = recentFiles.take(3)
+                if (previewFiles.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                        Text("No recent files.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    previewFiles.forEach { file ->
+                        RecentFileItem(
+                            file = file,
+                            onClick = { onOpenFileUri(file.uriString) },
+                            onToggleStar = { onToggleStar(file.uriString) }
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(80.dp)) // FAB padding
+            }
+        } else if (selectedBottomTab == 1) {
+            // Files Tab (Library)
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
                 var selectedListTab by remember { mutableStateOf(0) }
                 
-                // Recent / Starred Tabs
                 Row(
-                    modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
+                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -173,16 +259,17 @@ fun HomeScreen(
                         Text("No files found.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 } else {
-                    displayFiles.forEach { file ->
-                        RecentFileItem(
-                            file = file,
-                            onClick = { onOpenFileUri(file.uriString) },
-                            onToggleStar = { onToggleStar(file.uriString) }
-                        )
+                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                        displayFiles.forEach { file ->
+                            RecentFileItem(
+                                file = file,
+                                onClick = { onOpenFileUri(file.uriString) },
+                                onToggleStar = { onToggleStar(file.uriString) }
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(80.dp))
                     }
                 }
-                
-                Spacer(modifier = Modifier.height(80.dp)) // FAB padding
             }
         } else {
             // Placeholder for other tabs
@@ -195,7 +282,6 @@ fun HomeScreen(
         }
     }
 }
-
 @Composable
 fun QuickToolItem(icon: ImageVector, label: String, color: Color, onClick: () -> Unit) {
     Column(

@@ -1,7 +1,9 @@
 package com.example.pdfreader
 
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -52,16 +54,30 @@ class MainActivity : ComponentActivity() {
                         contract = ActivityResultContracts.OpenDocument()
                     ) { uri: Uri? ->
                         uri?.let {
+                            try {
+                                contentResolver.takePersistableUriPermission(
+                                    it,
+                                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                )
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                            
                             scope.launch {
-                                pdfEngine.loadPdf(it)
-                                selectedUri = it
-                                pageCount = pdfEngine.getPageCount()
-                                
-                                // Update history
-                                val (name, size) = getFileMetadata(this@MainActivity, it)
-                                val pdfFile = PdfFile(it.toString(), name, System.currentTimeMillis(), size)
-                                fileRepository.addOrUpdateFile(pdfFile)
-                                recentFiles = fileRepository.getFiles()
+                                try {
+                                    pdfEngine.loadPdf(it)
+                                    selectedUri = it
+                                    pageCount = pdfEngine.getPageCount()
+                                    
+                                    // Update history
+                                    val (name, size) = getFileMetadata(this@MainActivity, it)
+                                    val pdfFile = PdfFile(it.toString(), name, System.currentTimeMillis(), size)
+                                    fileRepository.addOrUpdateFile(pdfFile)
+                                    recentFiles = fileRepository.getFiles()
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                    Toast.makeText(this@MainActivity, "Failed: ${e.message}", Toast.LENGTH_LONG).show()
+                                }
                             }
                         }
                     }
@@ -74,14 +90,28 @@ class MainActivity : ComponentActivity() {
                             onOpenFileUri = { uriStr -> 
                                 val uri = Uri.parse(uriStr)
                                 scope.launch {
-                                    pdfEngine.loadPdf(uri)
-                                    selectedUri = uri
-                                    pageCount = pdfEngine.getPageCount()
-                                    
-                                    val (name, size) = getFileMetadata(this@MainActivity, uri)
-                                    val pdfFile = PdfFile(uri.toString(), name, System.currentTimeMillis(), size)
-                                    fileRepository.addOrUpdateFile(pdfFile)
-                                    recentFiles = fileRepository.getFiles()
+                                    try {
+                                        pdfEngine.loadPdf(uri)
+                                        selectedUri = uri
+                                        pageCount = pdfEngine.getPageCount()
+                                        
+                                        val (name, size) = getFileMetadata(this@MainActivity, uri)
+                                        val pdfFile = PdfFile(uri.toString(), name, System.currentTimeMillis(), size)
+                                        fileRepository.addOrUpdateFile(pdfFile)
+                                        recentFiles = fileRepository.getFiles()
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                        
+                                        // If permission is denied or file is deleted, remove it from history
+                                        fileRepository.removeFile(uriStr)
+                                        recentFiles = fileRepository.getFiles()
+                                        
+                                        Toast.makeText(
+                                            this@MainActivity, 
+                                            "File access expired or file missing. Please open it from your device again.", 
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
                                 }
                             },
                             recentFiles = recentFiles,

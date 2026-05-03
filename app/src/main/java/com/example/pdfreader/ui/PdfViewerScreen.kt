@@ -1,11 +1,21 @@
 package com.example.pdfreader.ui
 
 import android.graphics.Bitmap
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -104,6 +114,34 @@ fun PdfViewerScreen(
         }
     }
 
+    var toolsVisible by remember { mutableStateOf(true) }
+    var previousScrollOffset by remember { mutableStateOf(0) }
+    var previousFirstVisibleItem by remember { mutableStateOf(0) }
+    
+    // Zoom & Pan state
+    var scale by remember { mutableStateOf(1f) }
+    var offsetX by remember { mutableStateOf(0f) }
+    var offsetY by remember { mutableStateOf(0f) }
+
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .collect { (index, offset) ->
+                if (index > previousFirstVisibleItem) {
+                    toolsVisible = false
+                } else if (index < previousFirstVisibleItem) {
+                    toolsVisible = true
+                } else {
+                    if (offset > previousScrollOffset + 20) {
+                        toolsVisible = false
+                    } else if (offset < previousScrollOffset - 20) {
+                        toolsVisible = true
+                    }
+                }
+                previousFirstVisibleItem = index
+                previousScrollOffset = offset
+            }
+    }
+
     Row(modifier = Modifier.fillMaxSize()) {
         if (sidebarOpen) {
             SidebarComponent(
@@ -118,17 +156,56 @@ fun PdfViewerScreen(
         }
 
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-            LazyColumn(
-                state = listState,
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown()
+                            do {
+                                val event = awaitPointerEvent()
+                                val zoom = event.calculateZoom()
+                                val pan = event.calculatePan()
+                                
+                                val isMultiTouch = event.changes.size > 1
+                                if (isMultiTouch || scale > 1f) {
+                                    scale = (scale * zoom).coerceIn(1f, 5f)
+                                    if (scale > 1f) {
+                                        offsetX += pan.x
+                                        offsetY += pan.y
+                                        event.changes.forEach { it.consume() }
+                                    } else {
+                                        offsetX = 0f
+                                        offsetY = 0f
+                                    }
+                                }
+                            } while (event.changes.any { it.pressed })
+                        }
+                    }
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = offsetX,
+                        translationY = offsetY
+                    )
+            ) {
+                LazyColumn(
+                    state = listState,
+                    userScrollEnabled = scale == 1f,
+                    modifier = Modifier
+                        .fillMaxSize()
                     .background(Color.DarkGray)
                     // If user clicks outside a text box, deselect it
                     .pointerInput(Unit) {
                         detectTapGestures { 
-                            selectedTextAnnotationId = null 
-                            selectedHighlightId = null
-                            selectedShapeId = null
+                            if (selectedTextAnnotationId != null || selectedHighlightId != null || selectedShapeId != null || selectedSignatureId != null) {
+                                selectedTextAnnotationId = null 
+                                selectedHighlightId = null
+                                selectedShapeId = null
+                                selectedSignatureId = null
+                            } else {
+                                toolsVisible = !toolsVisible
+                            }
                         }
                     },
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -485,10 +562,14 @@ fun PdfViewerScreen(
                                     pendingSignatureLocation = SignatureLocation(index, tapX, tapY)
                                     showSignaturePad = true
                                 } else if (currentTool == ToolType.SCROLL || currentTool == ToolType.SHAPE) {
-                                    selectedShapeId = null
-                                    selectedSignatureId = null
-                                    selectedTextAnnotationId = null
-                                    selectedHighlightId = null
+                                    if (selectedShapeId != null || selectedSignatureId != null || selectedTextAnnotationId != null || selectedHighlightId != null) {
+                                        selectedShapeId = null
+                                        selectedSignatureId = null
+                                        selectedTextAnnotationId = null
+                                        selectedHighlightId = null
+                                    } else {
+                                        toolsVisible = !toolsVisible
+                                    }
                                 }
                             }
                         }) {
@@ -747,58 +828,81 @@ fun PdfViewerScreen(
                     }
                 }
             }
+            } // Close Zoom Wrapper Box
 
             // Top Left: Actions (Back + Sidebar)
-            Row(
-                modifier = Modifier.padding(16.dp).align(Alignment.TopStart),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Surface(
-                    modifier = Modifier.size(48.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                    shadowElevation = 4.dp
+            Box(modifier = Modifier.align(Alignment.TopStart).zIndex(1001f)) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = toolsVisible,
+                    enter = fadeIn() + slideInVertically(initialOffsetY = { -it }),
+                    exit = fadeOut() + slideOutVertically(targetOffsetY = { -it })
                 ) {
-                    IconButton(onClick = onCloseDocument) {
-                        Icon(androidx.compose.material.icons.Icons.Filled.ArrowBack, contentDescription = "Go Back")
-                    }
-                }
-                
-                Surface(
-                    modifier = Modifier.size(48.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                    shadowElevation = 4.dp
-                ) {
-                    IconButton(onClick = { sidebarOpen = !sidebarOpen }) {
-                        Icon(Icons.Filled.Menu, contentDescription = "Toggle Sidebar")
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            modifier = Modifier.size(48.dp),
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                            shadowElevation = 4.dp
+                        ) {
+                            IconButton(onClick = onCloseDocument) {
+                                Icon(androidx.compose.material.icons.Icons.Filled.ArrowBack, contentDescription = "Go Back")
+                            }
+                        }
+                        
+                        Surface(
+                            modifier = Modifier.size(48.dp),
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                            shadowElevation = 4.dp
+                        ) {
+                            IconButton(onClick = { sidebarOpen = !sidebarOpen }) {
+                                Icon(Icons.Filled.Menu, contentDescription = "Toggle Sidebar")
+                            }
+                        }
                     }
                 }
             }
             
             // Top Right: Actions (Close)
-            Row(
-                modifier = Modifier.padding(16.dp).align(Alignment.TopEnd),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Surface(
-                    modifier = Modifier.size(48.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f),
-                    shadowElevation = 4.dp
+            Box(modifier = Modifier.align(Alignment.TopEnd).zIndex(1001f)) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = toolsVisible,
+                    enter = fadeIn() + slideInVertically(initialOffsetY = { -it }),
+                    exit = fadeOut() + slideOutVertically(targetOffsetY = { -it })
                 ) {
-                    IconButton(onClick = onCloseDocument) {
-                        Icon(Icons.Filled.Close, contentDescription = "Close Document")
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            modifier = Modifier.size(48.dp),
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f),
+                            shadowElevation = 4.dp
+                        ) {
+                            IconButton(onClick = onCloseDocument) {
+                                Icon(Icons.Filled.Close, contentDescription = "Close Document")
+                            }
+                        }
                     }
                 }
             }
             
             // Bottom Center: Floating Pill Toolbar
             // Bottom Toolbar / Contextual Menu
-            if (selectedTextAnnotationId != null) {
+            Box(modifier = Modifier.align(Alignment.BottomCenter).zIndex(1001f)) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = toolsVisible,
+                    enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
+                    exit = fadeOut() + slideOutVertically(targetOffsetY = { it })
+                ) {
+                if (selectedTextAnnotationId != null) {
                 val selectedAnnotation = textAnnotations.find { it.id == selectedTextAnnotationId }
                 if (selectedAnnotation != null) {
-                    Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 32.dp)) {
+                    Box(modifier = Modifier.padding(bottom = 32.dp)) {
                         TextFormattingMenu(
                             annotation = selectedAnnotation,
                             onUpdate = { updatedAnnotation ->
@@ -817,7 +921,7 @@ fun PdfViewerScreen(
             } else if (selectedHighlightId != null) {
                 val selectedHighlight = highlightAnnotations.find { it.id == selectedHighlightId }
                 if (selectedHighlight != null) {
-                    Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 32.dp)) {
+                    Box(modifier = Modifier.padding(bottom = 32.dp)) {
                         HighlightFormattingMenu(
                             annotation = selectedHighlight,
                             onUpdate = { updatedAnnotation ->
@@ -836,7 +940,7 @@ fun PdfViewerScreen(
             } else if (selectedShapeId != null) {
                 val selectedShape = shapeAnnotations.find { it.id == selectedShapeId }
                 if (selectedShape != null) {
-                    Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 32.dp)) {
+                    Box(modifier = Modifier.padding(bottom = 32.dp)) {
                         ShapeFormattingMenu(
                             annotation = selectedShape,
                             onUpdate = { updatedAnnotation ->
@@ -1074,9 +1178,11 @@ fun PdfViewerScreen(
                         }
                     }
                 }
-            }
-        }
-    }
+            } // Close else
+            } // Close AnimatedVisibility
+            } // Close Bottom Center Box
+        } // Close Box(modifier = Modifier.weight(1f).fillMaxHeight())
+    } // Close Row(modifier = Modifier.fillMaxSize())
     
     if (showSignaturePad) {
         androidx.compose.ui.window.Dialog(onDismissRequest = { showSignaturePad = false }) {
