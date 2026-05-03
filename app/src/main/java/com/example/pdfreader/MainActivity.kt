@@ -44,6 +44,9 @@ class MainActivity : ComponentActivity() {
                     var pageCount by remember { mutableStateOf(0) }
                     val scope = rememberCoroutineScope()
                     var showSaveDialog by remember { mutableStateOf(false) }
+                    
+                    val fileRepository = remember { FileRepository(this@MainActivity) }
+                    var recentFiles by remember { mutableStateOf(fileRepository.getFiles()) }
 
                     val filePicker = rememberLauncherForActivityResult(
                         contract = ActivityResultContracts.OpenDocument()
@@ -53,6 +56,12 @@ class MainActivity : ComponentActivity() {
                                 pdfEngine.loadPdf(it)
                                 selectedUri = it
                                 pageCount = pdfEngine.getPageCount()
+                                
+                                // Update history
+                                val (name, size) = getFileMetadata(this@MainActivity, it)
+                                val pdfFile = PdfFile(it.toString(), name, System.currentTimeMillis(), size)
+                                fileRepository.addOrUpdateFile(pdfFile)
+                                recentFiles = fileRepository.getFiles()
                             }
                         }
                     }
@@ -61,7 +70,25 @@ class MainActivity : ComponentActivity() {
                         com.example.pdfreader.ui.HomeScreen(
                             isDarkMode = isDarkMode,
                             onToggleDarkMode = { isDarkMode = !isDarkMode },
-                            onOpenPdfClick = { filePicker.launch(arrayOf("application/pdf")) }
+                            onOpenPdfClick = { filePicker.launch(arrayOf("application/pdf")) },
+                            onOpenFileUri = { uriStr -> 
+                                val uri = Uri.parse(uriStr)
+                                scope.launch {
+                                    pdfEngine.loadPdf(uri)
+                                    selectedUri = uri
+                                    pageCount = pdfEngine.getPageCount()
+                                    
+                                    val (name, size) = getFileMetadata(this@MainActivity, uri)
+                                    val pdfFile = PdfFile(uri.toString(), name, System.currentTimeMillis(), size)
+                                    fileRepository.addOrUpdateFile(pdfFile)
+                                    recentFiles = fileRepository.getFiles()
+                                }
+                            },
+                            recentFiles = recentFiles,
+                            onToggleStar = { uriStr ->
+                                fileRepository.toggleStar(uriStr)
+                                recentFiles = fileRepository.getFiles()
+                            }
                         )
                     } else {
                         var currentAnnotations by remember { mutableStateOf<List<TextAnnotation>>(emptyList()) }
