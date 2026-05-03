@@ -1,0 +1,251 @@
+﻿// --- NEW UI START ---
+// Top App Bar
+Box(modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().zIndex(1001f)) {
+    androidx.compose.animation.AnimatedVisibility(
+        visible = toolsVisible,
+        enter = slideInVertically(initialOffsetY = { -it }),
+        exit = slideOutVertically(targetOffsetY = { -it })
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().height(64.dp),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 4.dp
+        ) {
+            Row(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Back button
+                IconButton(onClick = onCloseDocument) {
+                    Icon(androidx.compose.material.icons.Icons.Filled.ArrowBack, contentDescription = "Go Back")
+                }
+                
+                // Right actions
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { /* AI */ }) {
+                        Icon(androidx.compose.material.icons.Icons.Filled.AutoAwesome, contentDescription = "AI Assistant")
+                    }
+                    IconButton(onClick = { /* Search */ }) {
+                        Icon(androidx.compose.material.icons.Icons.Filled.Search, contentDescription = "Search")
+                    }
+                    IconButton(onClick = { /* Share */ }) {
+                        Icon(androidx.compose.material.icons.Icons.Filled.Share, contentDescription = "Share")
+                    }
+                    IconButton(onClick = { onSaveRequested(textAnnotations, highlightAnnotations, shapeAnnotations, signatureAnnotations) }) {
+                        Icon(androidx.compose.material.icons.Icons.Filled.Save, contentDescription = "Save")
+                    }
+                    IconButton(onClick = { showMoreToolsSheet = true }) {
+                        Icon(androidx.compose.material.icons.Icons.Filled.MoreVert, contentDescription = "More")
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Floating Page Indicator
+Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 80.dp, start = 16.dp).zIndex(1000f)) {
+    androidx.compose.animation.AnimatedVisibility(visible = toolsVisible, enter = fadeIn(), exit = fadeOut()) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color.Black.copy(alpha = 0.6f)
+        ) {
+            Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(androidx.compose.material.icons.Icons.Filled.InsertDriveFile, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                val currentIndex = listState.firstVisibleItemIndex
+                Text("${currentIndex + 1}/", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+// Full-screen Toggle
+Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = 80.dp, end = 16.dp).zIndex(1000f)) {
+    androidx.compose.animation.AnimatedVisibility(visible = toolsVisible, enter = fadeIn(), exit = fadeOut()) {
+        Surface(
+            shape = CircleShape,
+            color = Color.Black.copy(alpha = 0.6f)
+        ) {
+            IconButton(onClick = { toolsVisible = false }, modifier = Modifier.size(36.dp)) {
+                Icon(androidx.compose.material.icons.Icons.Filled.Fullscreen, contentDescription = "Full Screen", tint = Color.White)
+            }
+        }
+    }
+}
+
+// Bottom Navigation Bar
+Box(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().zIndex(1001f)) {
+    androidx.compose.animation.AnimatedVisibility(
+        visible = toolsVisible,
+        enter = slideInVertically(initialOffsetY = { it }),
+        exit = slideOutVertically(targetOffsetY = { it })
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            
+            // Secondary Toolbar (active tool options)
+            if (activeBottomCategory != null) {
+                Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shadowElevation = 8.dp) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = { activeBottomCategory = null; currentTool = ToolType.SCROLL }) {
+                            Icon(androidx.compose.material.icons.Icons.Filled.Close, contentDescription = "Close Tool")
+                        }
+                        Divider(modifier = Modifier.height(24.dp).width(1.dp).padding(horizontal = 4.dp))
+                        
+                        if (activeBottomCategory == BottomCategory.EDIT) {
+                            IconButton(
+                                onClick = { currentTool = ToolType.ADD_TEXT },
+                                modifier = Modifier.background(if (currentTool == ToolType.ADD_TEXT) MaterialTheme.colorScheme.primaryContainer else Color.Transparent, CircleShape)
+                            ) { Text("T", fontWeight = FontWeight.Bold, fontSize = 20.sp) }
+                            
+                            // Formatting menu
+                            if (selectedTextAnnotationId != null) {
+                                val selectedAnnotation = textAnnotations.find { it.id == selectedTextAnnotationId }
+                                if (selectedAnnotation != null) {
+                                    TextFormattingMenu(
+                                        annotation = selectedAnnotation,
+                                        onUpdate = { updatedAnnotation ->
+                                            val idx = textAnnotations.indexOfFirst { it.id == selectedAnnotation.id }
+                                            if (idx != -1) textAnnotations[idx] = updatedAnnotation
+                                        },
+                                        onDelete = { 
+                                            textAnnotations.removeIf { it.id == selectedAnnotation.id }
+                                            selectedTextAnnotationId = null
+                                        }
+                                    )
+                                }
+                            }
+                        } else if (activeBottomCategory == BottomCategory.ANNOTATE) {
+                            IconButton(
+                                onClick = { currentTool = ToolType.HIGHLIGHT },
+                                modifier = Modifier.background(if (currentTool == ToolType.HIGHLIGHT) MaterialTheme.colorScheme.primaryContainer else Color.Transparent, CircleShape)
+                            ) { Icon(Icons.Filled.Create, contentDescription = "Highlight") }
+                            
+                            // Shape tools
+                            ShapeType.values().forEach { type ->
+                                val isSelected = currentShapeType == type && currentTool == ToolType.SHAPE
+                                IconButton(
+                                    onClick = { currentTool = ToolType.SHAPE; currentShapeType = type },
+                                    modifier = Modifier.background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent, RoundedCornerShape(8.dp))
+                                ) {
+                                    val iconColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                    Canvas(modifier = Modifier.size(20.dp)) {
+                                        val strokeW = 4f
+                                        val padding = 2f
+                                        when(type) {
+                                            ShapeType.RECTANGLE -> drawRect(color = iconColor, style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeW), topLeft = Offset(padding, padding), size = androidx.compose.ui.geometry.Size(size.width - padding*2, size.height - padding*2))
+                                            ShapeType.OVAL -> drawOval(color = iconColor, style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeW), topLeft = Offset(padding, padding), size = androidx.compose.ui.geometry.Size(size.width - padding*2, size.height - padding*2))
+                                            ShapeType.LINE -> drawLine(color = iconColor, strokeWidth = strokeW, start = Offset(padding, size.height - padding), end = Offset(size.width - padding, padding))
+                                            ShapeType.ARROW -> {
+                                                drawLine(color = iconColor, strokeWidth = strokeW, start = Offset(padding, size.height - padding), end = Offset(size.width - padding, padding))
+                                                drawLine(color = iconColor, strokeWidth = strokeW, start = Offset(size.width - padding, padding), end = Offset(size.width - padding - 10f, padding))
+                                                drawLine(color = iconColor, strokeWidth = strokeW, start = Offset(size.width - padding, padding), end = Offset(size.width - padding, padding + 10f))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Formatters
+                            if (selectedHighlightId != null) {
+                                val selectedHighlight = highlightAnnotations.find { it.id == selectedHighlightId }
+                                if (selectedHighlight != null) {
+                                    HighlightFormattingMenu(
+                                        annotation = selectedHighlight,
+                                        onUpdate = { updatedAnnotation ->
+                                            val idx = highlightAnnotations.indexOfFirst { it.id == selectedHighlight.id }
+                                            if (idx != -1) highlightAnnotations[idx] = updatedAnnotation
+                                        },
+                                        onDelete = { 
+                                            highlightAnnotations.removeIf { it.id == selectedHighlight.id }
+                                            selectedHighlightId = null
+                                        }
+                                    )
+                                }
+                            }
+                            if (selectedShapeId != null) {
+                                val selectedShape = shapeAnnotations.find { it.id == selectedShapeId }
+                                if (selectedShape != null) {
+                                    ShapeFormattingMenu(
+                                        annotation = selectedShape,
+                                        onUpdate = { updatedAnnotation ->
+                                            val idx = shapeAnnotations.indexOfFirst { it.id == selectedShape.id }
+                                            if (idx != -1) shapeAnnotations[idx] = updatedAnnotation
+                                        },
+                                        onDelete = { 
+                                            shapeAnnotations.removeIf { it.id == selectedShape.id }
+                                            selectedShapeId = null
+                                        }
+                                    )
+                                }
+                            }
+                        } else if (activeBottomCategory == BottomCategory.SIGN) {
+                            IconButton(
+                                onClick = { currentTool = ToolType.SIGNATURE },
+                                modifier = Modifier.background(if (currentTool == ToolType.SIGNATURE) MaterialTheme.colorScheme.primaryContainer else Color.Transparent, CircleShape)
+                            ) { Icon(Icons.Filled.Gesture, contentDescription = "Sign") }
+                            
+                            if (selectedSignatureId != null) {
+                                val selectedSignature = signatureAnnotations.find { it.id == selectedSignatureId }
+                                if (selectedSignature != null) {
+                                    SignatureFormattingMenu(
+                                        annotation = selectedSignature,
+                                        onUpdate = { updatedAnnotation ->
+                                            val idx = signatureAnnotations.indexOfFirst { it.id == selectedSignature.id }
+                                            if (idx != -1) signatureAnnotations[idx] = updatedAnnotation
+                                        },
+                                        onDelete = { 
+                                            signatureAnnotations.removeIf { it.id == selectedSignature.id }
+                                            selectedSignatureId = null
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Main Bottom Navigation
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 8.dp
+                ) {
+                    NavigationBarItem(
+                        selected = activeBottomCategory == BottomCategory.EDIT,
+                        onClick = { activeBottomCategory = BottomCategory.EDIT; currentTool = ToolType.ADD_TEXT },
+                        icon = { Icon(Icons.Filled.Edit, contentDescription = "Edit") },
+                        label = { Text("Edit") }
+                    )
+                    NavigationBarItem(
+                        selected = activeBottomCategory == BottomCategory.ANNOTATE,
+                        onClick = { activeBottomCategory = BottomCategory.ANNOTATE; currentTool = ToolType.HIGHLIGHT },
+                        icon = { Icon(Icons.Filled.Create, contentDescription = "Annotate") },
+                        label = { Text("Annotate") }
+                    )
+                    NavigationBarItem(
+                        selected = activeBottomCategory == BottomCategory.SIGN,
+                        onClick = { activeBottomCategory = BottomCategory.SIGN; currentTool = ToolType.SIGNATURE },
+                        icon = { Icon(Icons.Filled.Gesture, contentDescription = "Sign") },
+                        label = { Text("Sign") }
+                    )
+                    NavigationBarItem(
+                        selected = activeBottomCategory == BottomCategory.FILL_FORM,
+                        onClick = { activeBottomCategory = BottomCategory.FILL_FORM },
+                        icon = { Icon(Icons.Filled.CheckBox, contentDescription = "Fill form") },
+                        label = { Text("Fill form") }
+                    )
+                    NavigationBarItem(
+                        selected = false,
+                        onClick = { showMoreToolsSheet = true },
+                        icon = { Icon(Icons.Filled.GridView, contentDescription = "More tools") },
+                        label = { Text("More tools") }
+                    )
+                }
+            }
+        }
+    }
+}
