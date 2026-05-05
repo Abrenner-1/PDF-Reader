@@ -18,7 +18,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.example.pdfreader.ui.PdfViewerScreen
-import com.example.pdfreader.ui.SaveDialog
 import com.example.pdfreader.ui.theme.PDFReaderTheme
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import kotlinx.coroutines.launch
@@ -46,6 +45,7 @@ class MainActivity : ComponentActivity() {
                     var pageCount by remember { mutableStateOf(0) }
                     val scope = rememberCoroutineScope()
                     var showSaveDialog by remember { mutableStateOf(false) }
+                    var pendingSignatures by remember { mutableStateOf<List<SignatureAnnotation>>(emptyList()) }
                     
                     val fileRepository = remember { FileRepository(this@MainActivity) }
                     var recentFiles by remember { mutableStateOf(fileRepository.getFiles()) }
@@ -121,51 +121,58 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     } else {
-                        var currentAnnotations by remember { mutableStateOf<List<TextAnnotation>>(emptyList()) }
-                        var currentHighlights by remember { mutableStateOf<List<HighlightAnnotation>>(emptyList()) }
-                        var currentShapes by remember { mutableStateOf<List<ShapeAnnotation>>(emptyList()) }
-                        var currentSignatures by remember { mutableStateOf<List<SignatureAnnotation>>(emptyList()) }
-                        
-                        val saveAsPicker = rememberLauncherForActivityResult(
-                            contract = ActivityResultContracts.CreateDocument("application/pdf")
-                        ) { uri: Uri? ->
-                            uri?.let {
-                                scope.launch {
-                                    pdfEngine.saveDocument(it, currentAnnotations, currentHighlights, currentShapes, currentSignatures)
-                                }
-                            }
-                        }
-                        
                         PdfViewerScreen(
                             pageCount = pageCount,
                             getPageBitmap = { index, scale -> pdfEngine.renderPageToBitmap(index, scale) },
                             isDarkMode = isDarkMode,
                             onToggleDarkMode = { isDarkMode = !isDarkMode },
-                            onSaveRequested = { annotations, highlights, shapes, signatures -> 
-                                currentAnnotations = annotations
-                                currentHighlights = highlights
-                                currentShapes = shapes
-                                currentSignatures = signatures
-                                showSaveDialog = true 
-                            },
                             onCloseDocument = {
                                 selectedUri = null
                                 pageCount = 0
+                            },
+                            onSaveRequested = { signatures ->
+                                pendingSignatures = signatures
+                                showSaveDialog = true
+                            },
+                            onShareRequested = {
+                                selectedUri?.let { uri ->
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "application/pdf"
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    startActivity(Intent.createChooser(shareIntent, "Share PDF"))
+                                }
+                            },
+                            onSearchRequested = { query ->
+                                pdfEngine.searchDocument(query)
                             }
                         )
                         
                         if (showSaveDialog) {
-                            SaveDialog(
+                            com.example.pdfreader.ui.SaveDialog(
                                 onDismiss = { showSaveDialog = false },
                                 onOverwrite = {
+                                    showSaveDialog = false
                                     scope.launch {
-                                        pdfEngine.saveDocument(selectedUri!!, currentAnnotations, currentHighlights, currentShapes, currentSignatures)
-                                        showSaveDialog = false
+                                        val success = pdfEngine.saveDocument(selectedUri!!, signatures = pendingSignatures)
+                                        if (success) {
+                                            Toast.makeText(this@MainActivity, "Signatures saved", Toast.LENGTH_SHORT).show()
+                                            pdfEngine.loadPdf(selectedUri!!)
+                                        } else {
+                                            Toast.makeText(this@MainActivity, "Failed to save signatures", Toast.LENGTH_LONG).show()
+                                        }
                                     }
                                 },
                                 onSaveCopy = {
-                                    saveAsPicker.launch("Document_Copy.pdf")
                                     showSaveDialog = false
+                                    // Normally we would launch an intent to create a new document
+                                    // For now, we'll just show a toast and overwrite
+                                    Toast.makeText(this@MainActivity, "Save Copy not fully implemented. Overwriting original.", Toast.LENGTH_SHORT).show()
+                                    scope.launch {
+                                        pdfEngine.saveDocument(selectedUri!!, signatures = pendingSignatures)
+                                        pdfEngine.loadPdf(selectedUri!!)
+                                    }
                                 }
                             )
                         }

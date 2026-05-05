@@ -82,7 +82,9 @@ fun PdfViewerScreen(
     getPageBitmap: suspend (Int, Float) -> Bitmap?,
     isDarkMode: Boolean,
     onToggleDarkMode: () -> Unit,
-    onSaveRequested: (List<TextAnnotation>, List<HighlightAnnotation>, List<ShapeAnnotation>, List<SignatureAnnotation>) -> Unit,
+    onSaveRequested: (List<SignatureAnnotation>) -> Unit,
+    onShareRequested: () -> Unit,
+    onSearchRequested: suspend (String) -> List<com.example.pdfreader.TextMatch>,
     onCloseDocument: () -> Unit
 ) {
     var sidebarOpen by remember { mutableStateOf(false) }
@@ -129,6 +131,11 @@ fun PdfViewerScreen(
     var savedSignatures by remember { mutableStateOf(sigManager.getSignatures()) }
     var showMoreToolsSheet by remember { mutableStateOf(false) }
     var toolsVisible by remember { mutableStateOf(true) }
+    var isSearching by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var searchResults by remember { mutableStateOf<List<com.example.pdfreader.TextMatch>>(emptyList()) }
+    var currentSearchIndex by remember { mutableStateOf(0) }
+    val scope = rememberCoroutineScope()
     var previousScrollOffset by remember { mutableStateOf(0) }
     var previousFirstVisibleItem by remember { mutableStateOf(0) }
     
@@ -528,6 +535,26 @@ fun PdfViewerScreen(
                                 contentScale = ContentScale.Fit
                             )
                         } ?: CircularProgressIndicator()
+
+                            // Draw search highlights
+                            if (isSearching && searchResults.isNotEmpty()) {
+                                Canvas(modifier = Modifier.fillMaxSize().zIndex(100f)) {
+                                    val canvasWidth = size.width
+                                    val canvasHeight = size.height
+                                    
+                                    searchResults.forEachIndexed { resIdx, match ->
+                                        if (match.pageIndex == index) {
+                                            val isCurrent = resIdx == currentSearchIndex
+                                            val color = if (isCurrent) androidx.compose.ui.graphics.Color(1f, 0.5f, 0f, 0.5f) else androidx.compose.ui.graphics.Color(1f, 1f, 0f, 0.4f)
+                                            drawRect(
+                                                color = color,
+                                                topLeft = androidx.compose.ui.geometry.Offset(match.x * canvasWidth, match.y * canvasHeight),
+                                                size = androidx.compose.ui.geometry.Size(match.width * canvasWidth, match.height * canvasHeight)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         
                         val boxWidth = maxWidth
                         val boxHeight = maxHeight
@@ -867,27 +894,70 @@ Box(modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().zIndex(1001f))
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Back button
-                IconButton(onClick = onCloseDocument) {
-                    Icon(androidx.compose.material.icons.Icons.Filled.ArrowBack, contentDescription = "Go Back")
-                }
-                
-                // Right actions
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { /* AI */ }) {
-                        Icon(androidx.compose.material.icons.Icons.Filled.AutoAwesome, contentDescription = "AI Assistant")
+                if (isSearching) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        IconButton(onClick = { isSearching = false; searchResults = emptyList() }) {
+                            Icon(androidx.compose.material.icons.Icons.Filled.Close, contentDescription = "Close Search")
+                        }
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp).background(Color.LightGray, RoundedCornerShape(4.dp)).padding(8.dp),
+                            singleLine = true,
+                            decorationBox = { innerTextField ->
+                                if (searchQuery.isEmpty()) Text("Search...", color = Color.DarkGray)
+                                innerTextField()
+                            }
+                        )
+                        IconButton(onClick = {
+                            scope.launch {
+                                searchResults = onSearchRequested(searchQuery)
+                                currentSearchIndex = 0
+                                if (searchResults.isNotEmpty()) {
+                                    listState.animateScrollToItem(searchResults[0].pageIndex)
+                                }
+                            }
+                        }) {
+                            Icon(androidx.compose.material.icons.Icons.Filled.Search, contentDescription = "Run Search")
+                        }
+                        Text("${if (searchResults.isNotEmpty()) currentSearchIndex + 1 else 0}/${searchResults.size}")
+                        IconButton(onClick = { 
+                            if (currentSearchIndex > 0) {
+                                currentSearchIndex-- 
+                                scope.launch { listState.animateScrollToItem(searchResults[currentSearchIndex].pageIndex) }
+                            }
+                        }) {
+                            Icon(androidx.compose.material.icons.Icons.Filled.KeyboardArrowUp, contentDescription = "Previous")
+                        }
+                        IconButton(onClick = { 
+                            if (currentSearchIndex < searchResults.size - 1) {
+                                currentSearchIndex++
+                                scope.launch { listState.animateScrollToItem(searchResults[currentSearchIndex].pageIndex) }
+                            }
+                        }) {
+                            Icon(androidx.compose.material.icons.Icons.Filled.KeyboardArrowDown, contentDescription = "Next")
+                        }
                     }
-                    IconButton(onClick = { /* Search */ }) {
-                        Icon(androidx.compose.material.icons.Icons.Filled.Search, contentDescription = "Search")
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onCloseDocument) {
+                            Icon(androidx.compose.material.icons.Icons.Filled.ArrowBack, contentDescription = "Go Back")
+                        }
+                        IconButton(onClick = { sidebarOpen = !sidebarOpen }) {
+                            Icon(androidx.compose.material.icons.Icons.Filled.Menu, contentDescription = "Toggle Sidebar")
+                        }
                     }
-                    IconButton(onClick = { /* Share */ }) {
-                        Icon(androidx.compose.material.icons.Icons.Filled.Share, contentDescription = "Share")
-                    }
-                    IconButton(onClick = { onSaveRequested(textAnnotations, highlightAnnotations, shapeAnnotations, signatureAnnotations) }) {
-                        Icon(androidx.compose.material.icons.Icons.Filled.Save, contentDescription = "Save")
-                    }
-                    IconButton(onClick = { showMoreToolsSheet = true }) {
-                        Icon(androidx.compose.material.icons.Icons.Filled.MoreVert, contentDescription = "More")
+                    
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { isSearching = true }) {
+                            Icon(androidx.compose.material.icons.Icons.Filled.Search, contentDescription = "Search")
+                        }
+                        IconButton(onClick = onShareRequested) {
+                            Icon(androidx.compose.material.icons.Icons.Filled.Share, contentDescription = "Share")
+                        }
+                        IconButton(onClick = { onSaveRequested(signatureAnnotations) }) {
+                            Icon(androidx.compose.material.icons.Icons.Filled.Save, contentDescription = "Save")
+                        }
                     }
                 }
             }
@@ -1003,67 +1073,55 @@ Box(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().zIndex(1001
             
             // Secondary Toolbar (active tool options)
             if (activeBottomCategory != null) {
-                Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shadowElevation = 8.dp) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(onClick = { activeBottomCategory = null; currentTool = ToolType.SCROLL }) {
-                            Icon(androidx.compose.material.icons.Icons.Filled.Close, contentDescription = "Close Tool")
-                        }
-                        Divider(modifier = Modifier.height(24.dp).width(1.dp).padding(horizontal = 4.dp))
-                        
-                        if (activeBottomCategory == BottomCategory.EDIT) {
-                            EditSecondaryMenu(
-                                currentTool = currentTool,
-                                currentShapeType = currentShapeType,
-                                onToolSelected = { currentTool = it },
-                                onShapeSelected = { currentShapeType = it },
-                                onClose = { activeBottomCategory = null; currentTool = ToolType.SCROLL },
-                                textAnnotations = textAnnotations,
-                                highlightAnnotations = highlightAnnotations,
-                                shapeAnnotations = shapeAnnotations,
-                                selectedTextAnnotationId = selectedTextAnnotationId,
-                                selectedHighlightId = selectedHighlightId,
-                                selectedShapeId = selectedShapeId,
-                                onUpdateText = { updated -> val idx = textAnnotations.indexOfFirst { it.id == updated.id }; if(idx!=-1) textAnnotations[idx] = updated },
-                                onDeleteText = { id -> textAnnotations.removeIf { it.id == id }; selectedTextAnnotationId = null },
-                                onUpdateHighlight = { updated -> val idx = highlightAnnotations.indexOfFirst { it.id == updated.id }; if(idx!=-1) highlightAnnotations[idx] = updated },
-                                onDeleteHighlight = { id -> highlightAnnotations.removeIf { it.id == id }; selectedHighlightId = null },
-                                onUpdateShape = { updated -> val idx = shapeAnnotations.indexOfFirst { it.id == updated.id }; if(idx!=-1) shapeAnnotations[idx] = updated },
-                                onDeleteShape = { id -> shapeAnnotations.removeIf { it.id == id }; selectedShapeId = null }
+                if (activeBottomCategory == BottomCategory.EDIT) {
+                    EditSecondaryMenu(
+                        currentTool = currentTool,
+                        currentShapeType = currentShapeType,
+                        onToolSelected = { currentTool = it },
+                        onShapeSelected = { currentShapeType = it },
+                        onClose = { activeBottomCategory = null; currentTool = ToolType.SCROLL },
+                        textAnnotations = textAnnotations,
+                        highlightAnnotations = highlightAnnotations,
+                        shapeAnnotations = shapeAnnotations,
+                        selectedTextAnnotationId = selectedTextAnnotationId,
+                        selectedHighlightId = selectedHighlightId,
+                        selectedShapeId = selectedShapeId,
+                        onUpdateText = { updated -> val idx = textAnnotations.indexOfFirst { it.id == updated.id }; if(idx!=-1) textAnnotations[idx] = updated },
+                        onDeleteText = { id -> textAnnotations.removeIf { it.id == id }; selectedTextAnnotationId = null },
+                        onUpdateHighlight = { updated -> val idx = highlightAnnotations.indexOfFirst { it.id == updated.id }; if(idx!=-1) highlightAnnotations[idx] = updated },
+                        onDeleteHighlight = { id -> highlightAnnotations.removeIf { it.id == id }; selectedHighlightId = null },
+                        onUpdateShape = { updated -> val idx = shapeAnnotations.indexOfFirst { it.id == updated.id }; if(idx!=-1) shapeAnnotations[idx] = updated },
+                        onDeleteShape = { id -> shapeAnnotations.removeIf { it.id == id }; selectedShapeId = null }
+                    )
+                } else if (activeBottomCategory == BottomCategory.SIGN) {
+                    SignSecondaryMenu(
+                        onClose = { activeBottomCategory = null; currentTool = ToolType.SCROLL },
+                        savedSignatures = savedSignatures,
+                        onSelectSignature = { sig -> 
+                            val newSig = SignatureAnnotation(
+                                pageIndex = listState.firstVisibleItemIndex,
+                                strokes = sig.toOffsetStrokes(),
+                                startX = 0.4f,
+                                startY = 0.4f,
+                                endX = 0.6f,
+                                endY = 0.6f,
+                                color = androidx.compose.ui.graphics.Color.Black,
+                                strokeWidth = 2f
                             )
-                        } else if (activeBottomCategory == BottomCategory.SIGN) {
-                            SignSecondaryMenu(
-                                onClose = { activeBottomCategory = null; currentTool = ToolType.SCROLL },
-                                savedSignatures = savedSignatures,
-                                onSelectSignature = { sig -> 
-                                    val newSig = SignatureAnnotation(
-                                        pageIndex = listState.firstVisibleItemIndex,
-                                        strokes = sig.toOffsetStrokes(),
-                                        startX = 0.4f,
-                                        startY = 0.4f,
-                                        endX = 0.6f,
-                                        endY = 0.6f,
-                                        color = androidx.compose.ui.graphics.Color.Black,
-                                        strokeWidth = 2f
-                                    )
-                                    signatureAnnotations.add(newSig)
-                                    selectedSignatureId = newSig.id
-                                    currentTool = ToolType.SCROLL
-                                },
-                                onDeleteSignature = { id ->
-                                    sigManager.deleteSignature(id)
-                                    savedSignatures = sigManager.getSignatures()
-                                },
-                                onCreateSignature = { showSignaturePad = true },
-                                selectedSignatureId = selectedSignatureId,
-                                signatureAnnotations = signatureAnnotations,
-                                onUpdateSignature = { updated -> val idx = signatureAnnotations.indexOfFirst { it.id == updated.id }; if(idx!=-1) signatureAnnotations[idx] = updated },
-                                onDeleteAnnotation = { id -> signatureAnnotations.removeIf { it.id == id }; selectedSignatureId = null }
-                            )
-                        }
-                    }
+                            signatureAnnotations.add(newSig)
+                            selectedSignatureId = newSig.id
+                            currentTool = ToolType.SCROLL
+                        },
+                        onDeleteSignature = { id ->
+                            sigManager.deleteSignature(id)
+                            savedSignatures = sigManager.getSignatures()
+                        },
+                        onCreateSignature = { showSignaturePad = true },
+                        selectedSignatureId = selectedSignatureId,
+                        signatureAnnotations = signatureAnnotations,
+                        onUpdateSignature = { updated -> val idx = signatureAnnotations.indexOfFirst { it.id == updated.id }; if(idx!=-1) signatureAnnotations[idx] = updated },
+                        onDeleteAnnotation = { id -> signatureAnnotations.removeIf { it.id == id }; selectedSignatureId = null }
+                    )
                 }
             } else {
                 // Main Bottom Navigation
@@ -1214,7 +1272,7 @@ Box(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().zIndex(1001
                                     strokeWidth = 3f
                                 )
                                 signatureAnnotations.add(sig)
-                                val savedSig = com.example.pdfreader.ui.components.SavedSignature.fromOffsetStrokes(strokes)
+                                val savedSig = com.example.pdfreader.ui.components.SavedSignature.fromOffsetStrokes(normalizedStrokes)
                                 sigManager.saveSignature(savedSig)
                                 savedSignatures = sigManager.getSignatures()
                                 selectedSignatureId = sig.id

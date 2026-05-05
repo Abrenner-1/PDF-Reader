@@ -53,9 +53,9 @@ class PdfEngine(private val context: Context) {
 
     suspend fun saveDocument(
         outputUri: Uri,
-        annotations: List<TextAnnotation>,
-        highlights: List<HighlightAnnotation>,
-        shapes: List<ShapeAnnotation>,
+        annotations: List<TextAnnotation> = emptyList(),
+        highlights: List<HighlightAnnotation> = emptyList(),
+        shapes: List<ShapeAnnotation> = emptyList(),
         signatures: List<SignatureAnnotation> = emptyList()
     ): Boolean = withContext(Dispatchers.IO) {
         try {
@@ -453,4 +453,60 @@ class PdfEngine(private val context: Context) {
             doc.close()
         }
     }
+
+    suspend fun searchDocument(query: String): List<TextMatch> {
+        val matches = mutableListOf<TextMatch>()
+        if (query.isBlank()) return matches
+        
+        withContext(Dispatchers.IO) {
+            currentDocument?.let { doc ->
+                val stripper = object : com.tom_roush.pdfbox.text.PDFTextStripper() {
+                    override fun writeString(text: String?, textPositions: List<com.tom_roush.pdfbox.text.TextPosition>?) {
+                        super.writeString(text, textPositions)
+                        if (text != null && textPositions != null && text.contains(query, ignoreCase = true)) {
+                            var startIndex = text.indexOf(query, ignoreCase = true)
+                            while (startIndex >= 0 && startIndex < textPositions.size) {
+                                val endIndex = minOf(startIndex + query.length, textPositions.size)
+                                val matchPositions = textPositions.subList(startIndex, endIndex)
+                                
+                                if (matchPositions.isNotEmpty()) {
+                                    val pageHeight = doc.getPage(this.currentPageNo - 1).cropBox.height
+                                    val pageWidth = doc.getPage(this.currentPageNo - 1).cropBox.width
+                                    
+                                    val minX = matchPositions.minOf { it.xDirAdj }
+                                    val maxX = matchPositions.maxOf { it.xDirAdj + it.widthDirAdj }
+                                    // Note: In PDFTextStripper, yDirAdj is the baseline. 
+                                    // Usually it is from the top of the page.
+                                    val minY = matchPositions.minOf { it.yDirAdj - it.heightDir }
+                                    val maxY = matchPositions.maxOf { it.yDirAdj + (it.heightDir * 0.2f) } // adding a bit for descenders
+                                    
+                                    matches.add(
+                                        TextMatch(
+                                            pageIndex = this.currentPageNo - 1,
+                                            x = minX / pageWidth,
+                                            y = minY / pageHeight,
+                                            width = (maxX - minX) / pageWidth,
+                                            height = (maxY - minY) / pageHeight
+                                        )
+                                    )
+                                }
+                                startIndex = text.indexOf(query, startIndex + 1, ignoreCase = true)
+                            }
+                        }
+                    }
+                }
+                stripper.sortByPosition = true
+                stripper.getText(doc)
+            }
+        }
+        return matches
+    }
 }
+
+data class TextMatch(
+    val pageIndex: Int,
+    val x: Float,
+    val y: Float,
+    val width: Float,
+    val height: Float
+)

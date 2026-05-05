@@ -50,7 +50,12 @@ class SignatureStorageManager(private val context: Context) {
         val json = prefs.getString("saved_signatures", null) ?: return emptyList()
         val type = object : TypeToken<List<SavedSignature>>() {}.type
         return try {
-            gson.fromJson(json, type)
+            val list: List<SavedSignature> = gson.fromJson(json, type) ?: emptyList()
+            list.filter { sig ->
+                sig.strokes.all { stroke ->
+                    stroke.all { pt -> kotlin.math.abs(pt[0]) <= 2f && kotlin.math.abs(pt[1]) <= 2f }
+                }
+            }
         } catch (e: Exception) {
             emptyList()
         }
